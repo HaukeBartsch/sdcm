@@ -401,7 +401,7 @@ func main() {
 	}
 	// we will error out of the output path exists already
 	if _, err := os.Stat(filepath.Join(os.Args[2], "input")); err == nil {
-		exitGracefully(errors.New("output path already exists"))
+		exitGracefully(fmt.Errorf("output path %s already exists, cowardly refusing to continue", filepath.Join(os.Args[2], "input")))
 	}
 
 	fmt.Printf("Sort %s...\n", input)
