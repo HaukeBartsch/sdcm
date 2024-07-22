@@ -29,7 +29,7 @@ done in 4m7.765658167s
 
 ## Timing
 
-The following table compares the processing speed of sdcm and Horos 4.0.1 (on MacBook Air 13, M2 arm64) for 244,617 DICOM files (LIDC-IDRI dataset from an external SSD):
+The following table compares the processing speeds of sdcm and Horos 4.0.1 (on MacBook Air 13, M2 arm64) for 244,617 DICOM files (LIDC-IDRI dataset from an external SSD):
 
 | Program | Task | Timing |
 | --- | --- | --- |
