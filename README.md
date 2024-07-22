@@ -82,6 +82,7 @@ sdcm -verbose \
      <input folder> <output folder>
 ```
 
+The folder option can also be set as an environment variable SDCM_FOLDER_PATH.
 
 ### Install on MacOS
 

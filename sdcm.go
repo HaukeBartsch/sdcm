@@ -578,6 +578,13 @@ func main() {
 		}
 	}
 
+	if outputFolderFlag == "" {
+		env_folder_path := os.Getenv("SDCM_FOLDER_PATH")
+		if len(env_folder_path) > 0 {
+			outputFolderFlag = env_folder_path
+		}
+	}
+
 	if verboseFlag {
 		fmt.Printf("Parse %s...\n", input)
 	}
