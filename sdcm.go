@@ -196,7 +196,7 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 	// we can filter out files that take a long time if we allow only
 	//  - files without an extension, or
 	//  - files with .dcm as extension
-	if filepath.Ext(path) != "" && filepath.Ext(path) != ".dcm" {
+	if filepath.Ext(path) != "" && strings.ToLower(filepath.Ext(path)) != ".dcm" {
 		atomic.AddInt32(&counterError, 1)
 		//fmt.Printf("ignore file: %s\n", path)
 		return nil // ignore this file

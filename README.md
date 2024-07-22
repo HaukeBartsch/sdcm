@@ -29,7 +29,7 @@ done in 4m7.765658167s
 
 ## Timing
 
-Timing of sdcm and Horos 4.0.1 (on MacBook Air 13, M2 arm64) for processing 244,617 DICOM files (LIDC-IDRI dataset from an external SSD):
+The following table compares the processing speed of sdcm and Horos 4.0.1 (on MacBook Air 13, M2 arm64) for 244,617 DICOM files (LIDC-IDRI dataset from an external SSD):
 
 | Program | Task | Timing |
 | --- | --- | --- |
@@ -41,7 +41,7 @@ In this test Horos was asked to only "link" to the input folder. About 970 image
 
 ### Details
 
-Writing to disk is usually the slowest part of sorting DICOM files. To speed this up the '-method link' option will not copy the content of the input files. Instead a symbolic link file (smaller) that points to the each input file is created. In order to obtain a copy of the files you need to dereference the symbolic links. The 'cp' program has an option '-L' that follows symbolic links:
+Writing to disk is usually the slowest part of sorting DICOM files. To speed this up the '-method link' option will not copy the content of the input files. Instead a symbolic link file (smaller) that points to the each input file is created. In order to obtain a copy of the files you need to dereference each symbolic link. The 'cp' program has an option '-L' that follows symbolic links with:
 
 ```bash
 cp -Lr <output folder>/input/<patient>/<study>/<series> /somewhere/else/
@@ -49,7 +49,7 @@ cp -Lr <output folder>/input/<patient>/<study>/<series> /somewhere/else/
 
 The default option '-method copy' is slower but generates a physical copy of files in the output folder. If you are are only interested in a single series use '-method link' followed by 'cp -L'. 
 
-Warning: Scanning non-DICOM files takes a lot of time. sdcm uses a heuristic. DICOM files either do not have an extension or have the ".dcm" extension. All other files are ignored. This implies that sdcm will ignore files with an extension like ".dcm.bak".
+Warning: Scanning non-DICOM files takes a lot of time. sdcm uses a heuristic based on filenames. It assumes that DICOM files either do not have an extension or have the ".dcm" extension. All other files are ignored. This implies that sdcm will ignore files with an extension like ".dcm.bak".
 
 #### Output folder structure
 
