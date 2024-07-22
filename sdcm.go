@@ -94,7 +94,7 @@ type Description struct {
 	InputViewDICOMSeriesPath string
 }
 
-var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9]+`)
+var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9 ]+`)
 
 func clearString(str string) string {
 	return nonAlphanumericRegex.ReplaceAllString(str, "")
@@ -208,7 +208,7 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 	//fmt.Println("look at file: ", path)
 
 	// Create the output path in some standard way
-	oOrderPath := filepath.Join(dest_path, "input")
+	oOrderPath := dest_path
 	if _, err := os.Stat(oOrderPath); os.IsNotExist(err) {
 		err := os.Mkdir(oOrderPath, 0755)
 		if err != nil {
@@ -337,7 +337,7 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 				pps = strings.Replace(pps, "{Modality}", Modality, -1)
 				pps = strings.Replace(pps, "{SeriesNumber}", SeriesNumber, -1)
 				pps = strings.Replace(pps, "{counter}", fmt.Sprintf("%06d", counter), -1) // use the global counter
-				pps = strings.Replace(pps, " ", "", -1)                                   // remove spaces
+				pps = strings.Replace(pps, " ", "-", -1)                                  // remove spaces
 
 				pathPieces := splitPath(pps)
 				piece := 0
@@ -467,7 +467,7 @@ func FormatFileSize(s float64, base float64) string {
 }
 
 func sort(source_path string, dest_path string) int32 {
-	destination_path := dest_path + "/input"
+	destination_path := dest_path
 
 	if _, err := os.Stat(destination_path); os.IsNotExist(err) {
 		err := os.Mkdir(destination_path, 0755)
@@ -557,8 +557,8 @@ func main() {
 		exitGracefully(errors.New("input path could not be found"))
 	}
 	// we will error out of the output path exists already
-	if _, err := os.Stat(filepath.Join(flag.Args()[1], "input")); err == nil {
-		exitGracefully(fmt.Errorf("output path %s already exists, cowardly refusing to continue. Remove output or specify a new directory", filepath.Join(flag.Args()[1], "input")))
+	if _, err := os.Stat(flag.Args()[1]); err == nil {
+		exitGracefully(fmt.Errorf("output path %s already exists, cowardly refusing to continue. Remove output or specify a new directory", flag.Args()[1]))
 	}
 
 	if verboseFlag {

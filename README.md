@@ -5,49 +5,81 @@ Usage:
 ```bash
 sdcm -verbose -method link <input folder> <output folder>
 ```
-The output folder should exist, but be empty. This program will chicken out if it finds a folder called 'input' in the output folder.
+The output folder should exist, but be empty. This program will chicken out if the output folder already exists.
 
-With the above options the output folder will contain a directory 'input' with studies, series and links to the DICOM images in the input folder:
+With the above options the output folder contains a directory tree with studies, series and links to the DICOM images:
 
 ```bash
-<output folder>
-└── input
-    ├── LIDC-IDRI-0001_
-    │   ├── 20000101__1.3.6.1.4.1.14519.5.2.1.6279.6001.175012972118199124641098335511
-    │   │   └── 3000923__1.3.6.1.4.1.14519.5.2.1.6279.6001.141365756818074696859567662357
-    │   │       ├── DX_1.3.6.1.4.1.14519.5.2.1.6279.6001.257944242390114100388269195181.dcm -> /Volumes/T7/data/LIDC-IDRI/LIDC-IDRI/LIDC-IDRI-0001/01-01-2000-35511/3000923-62357/000002.dcm
-    │   │       └── DX_1.3.6.1.4.1.14519.5.2.1.6279.6001.307896144859643716158189196068.dcm -> /Volumes/T7/data/LIDC-IDRI/LIDC-IDRI/LIDC-IDRI-0001/01-01-2000-35511/3000923-62357/000001.dcm
-    │   └── 20000101__1.3.6.1.4.1.14519.5.2.1.6279.6001.298806137288633453246975630178
-    │       └── 3000566__1.3.6.1.4.1.14519.5.2.1.6279.6001.179049373636438705059720603192
-    │           ├── CT_1.3.6.1.4.1.14519.5.2.1.6279.6001.100954823835603369147775570297.dcm -> /Volumes/T7/data/LIDC-IDRI/LIDC-IDRI/LIDC-IDRI-0001/01-01-2000-30178/3000566-03192/000122.dcm
-    │           ├── CT_1.3.6.1.4.1.14519.5.2.1.6279.6001.101045044159171311719370216637.dcm -> /Volumes/T7/data/LIDC-IDRI/LIDC-IDRI/LIDC-IDRI-0001/01-01-2000-30178/3000566-03192/000107.dcm
-    │           ├── CT_1.3.6.1.4.1.14519.5.2.1.6279.6001.104640960159524969909035876745.dcm -> /Volumes/T7/data/LIDC-IDRI/LIDC-IDRI/LIDC-IDRI-0001/01-01-2000-30178/3000566-03192/000075.dcm
-    │           ├── CT_1.3.6.1.4.1.14519.5.2.1.6279.6001.104650143968793544078397221048.dcm -> /Volumes/T7/data/LIDC-IDRI/LIDC-IDRI/LIDC-IDRI-0001/01-01-2000-30178/3000566-03192/000124.dcm
-    ...
+> ./build/macos-arm64/sdcm -verbose -method link /Volumes/T7/data/LIDC-IDRI/LIDC-IDRI /tmp/bbb
+Parse /Volumes/T7/data/LIDC-IDRI/LIDC-IDRI...
+⣯ 244600 [988 files / s] P1010 S1308 S1398
+done in 4m7.765658167s 
+✓ sorted 244617 files into /tmp/bbb [1317 non-DICOM files ignored]
+
+> tree -L 3 /tmp/bbb
+/tmp/bbb
+├── LIDC-IDRI-0001_
+│   ├── 20000101__1.3.6.1.4.1.14519.5.2.1.6279.6001.175012972118199124641098335511
+│   │   └── 3000923__1.3.6.1.4.1.14519.5.2.1.6279.6001.141365756818074696859567662357
+│   └── 20000101__1.3.6.1.4.1.14519.5.2.1.6279.6001.298806137288633453246975630178
+│       └── 3000566__1.3.6.1.4.1.14519.5.2.1.6279.6001.179049373636438705059720603192
+...
 ```
 
 ## Timing
 
-Timing between sdcm and Horos 4.0.1 (on MacBook Air 13, M2 arm64) for processing of 244,617 DICOM images (LIDC-IDRI dataset of XRay and CT on external SSD):
+Timing of sdcm and Horos 4.0.1 (on MacBook Air 13, M2 arm64) for processing 244,617 DICOM files (LIDC-IDRI dataset from an external SSD):
 
 | Program | Task | Timing |
 | --- | --- | --- |
 | Horos v4.01 | process 244,617 DICOM and 1,300 non-DICOM files | 7m50s |
 | sdcm v0.0.2 | process 244,617 DICOM and 1,300 non-DICOM files  | 4m12s |
 
-In this test Horos was asked to only "link" in the input folder. About 1,000 images per second can be processed by sdcm.
+In this test Horos was asked to only "link" to the input folder. About 970 images per second can be processed by sdcm. Using "-method copy" approximately 200 files per second are processed on the same machine.
+
 
 ### Details
 
-Writing to disk is usually the slowest part of sorting DICOM files. To speed this up the '-method link' option will not copy the input files. Instead a symbolic link that points to the input file is created. In order to obtain a 'real' copy of the files dereference the symbolic links. The 'cp' program has an option '-L' that follows symbolic links:
+Writing to disk is usually the slowest part of sorting DICOM files. To speed this up the '-method link' option will not copy the content of the input files. Instead a symbolic link file (smaller) that points to the each input file is created. In order to obtain a copy of the files you need to dereference the symbolic links. The 'cp' program has an option '-L' that follows symbolic links:
 
 ```bash
 cp -Lr <output folder>/input/<patient>/<study>/<series> /somewhere/else/
 ```
 
-By default the option '-method copy' is used which is slower but copies files to the output folder. If you are are only interested in a single series you should use '-method link' followed by 'cp -L'. 
+The default option '-method copy' is slower but generates a physical copy of files in the output folder. If you are are only interested in a single series use '-method link' followed by 'cp -L'. 
 
-Warning: Scanning non-DICOM files takes a lot of time. We use a heuristic here that a DICOM files either does not have an extension or has the ".dcm" extension. All other files will be ignored.
+Warning: Scanning non-DICOM files takes a lot of time. sdcm uses a heuristic. DICOM files either do not have an extension or have the ".dcm" extension. All other files are ignored. This implies that sdcm will ignore files with an extension like ".dcm.bak".
+
+#### Output folder structure
+
+The default output folder structure combines patient, study and series level information. You can specify a simplier output format using the "-folder" option.
+
+Default folders:
+
+```bash
+sdcm -verbose \
+     -method link \
+     -folder "{PatientID}_{PatientName}/{StudyDate}_{StudyTime}_{StudyInstanceUID}/{SeriesNumber}_{SeriesDescription}_{SeriesInstanceUID}/{Modality}_{SOPInstanceUID}.dcm" \
+     <input folder> <output folder>
+```
+
+Simple folder:
+
+```bash
+sdcm -verbose \
+     -method link \
+     -folder "{PatientID}/{SeriesNumber}_{SeriesDescription}/{Modality}_{counter}.dcm" \
+     <input folder> <output folder>
+```
+
+BIDS like folder:
+
+```bash
+sdcm -verbose \
+     -method link \
+     -folder "ProjectX/sub-{PatientID}/ses-{StudyDate}_{StudyTime}/{SeriesNumber}_{SeriesDescription}/{Modality}_{counter}.dcm" \
+     <input folder> <output folder>
+```
 
 
 ### Install on MacOS
