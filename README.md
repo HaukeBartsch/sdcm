@@ -84,6 +84,10 @@ sdcm -verbose \
 
 The folder option can also be set as an environment variable SDCM_FOLDER_PATH.
 
+```bash
+SDCM_FOLDER_PATH="{PatientID}/{StudyDate}/{SeriesNumber}_{SeriesDescription}/{Modality}_{counter}.dcm" sdcm -verbose -method link <input folder> <output folder>
+```
+
 ### Install on MacOS
 
 Download the sdcm executable that matches your platform. Copy the file (statically linked executable) to a folder in your path (e.g. /usr/local/bin).

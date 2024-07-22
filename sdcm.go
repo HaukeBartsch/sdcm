@@ -392,7 +392,7 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 				_, err = os.Stat(outputPathFileName)
 				var c int = 0
 				atomic.AddInt32(&counter, 1)
-				if verboseFlag && counter%200 == 0 {
+				if verboseFlag && counter%100 == 0 {
 					numPatients := 0
 					listPatients.Range(func(key, value interface{}) bool {
 						numPatients = numPatients + 1
