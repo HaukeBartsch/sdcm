@@ -507,6 +507,20 @@ type SeriesInstanceUIDWithName struct {
 	Order             int
 }
 
+func IsEmpty(name string) (bool, error) {
+	f, err := os.Open(name)
+	if err != nil {
+		return false, err
+	}
+	defer f.Close()
+
+	_, err = f.Readdirnames(1) // Or f.Readdir(1)
+	if err == io.EOF {
+		return true, nil
+	}
+	return false, err // Either not empty or error, suits both cases
+}
+
 func main() {
 
 	// Server for pprof
@@ -519,10 +533,10 @@ func main() {
 	log.SetFlags(0)
 	log.SetOutput(io.Discard /*ioutil.Discard*/)
 
-	flag.StringVar(&methodFlag, "method", "copy", "Create symbolic links (faster) or copy files (copy|link)")
+	flag.StringVar(&methodFlag, "method", "copy", "Create symbolic links (faster) or really copy files (copy|link)")
 	flag.StringVar(&outputFolderFlag, "folder", "{PatientID}_{PatientName}/{StudyDate}_{StudyTime}_{StudyInstanceUID}/{SeriesNumber}_{SeriesDescription}_{SeriesInstanceUID}/{Modality}_{SOPInstanceUID}.dcm", "Specify the requested output folder structure using the following DICOM tags:\n\t{counter}, {PatientID}, {PatientName}, {StudyDate},\n\t{StudyTime}, {SeriesDescription}, {SeriesNumber},\n\t{Modality}, {StudyInstanceUID}, {SeriesInstanceUID}, {SOPInstanceUID}\n")
-	flag.BoolVar(&verboseFlag, "verbose", false, "Print more output while creating the output folder")
-	flag.BoolVar(&versionFlag, "version", false, "Print the version")
+	flag.BoolVar(&verboseFlag, "verbose", false, "Print more verbose output")
+	flag.BoolVar(&versionFlag, "version", false, "Print the version number")
 	flag.Parse()
 
 	if versionFlag {
@@ -556,9 +570,12 @@ func main() {
 	if err != nil {
 		exitGracefully(errors.New("input path could not be found"))
 	}
-	// we will error out of the output path exists already
+	// we will error out of the output path already exists and is not empty
 	if _, err := os.Stat(flag.Args()[1]); err == nil {
-		exitGracefully(fmt.Errorf("output path %s already exists, cowardly refusing to continue. Remove output or specify a new directory", flag.Args()[1]))
+		isEmpty, _ := IsEmpty(flag.Args()[1])
+		if !isEmpty {
+			exitGracefully(fmt.Errorf("output path %s already exists, cowardly refusing to continue. Clear its content or specify a new directory", flag.Args()[1]))
+		}
 	}
 
 	if verboseFlag {

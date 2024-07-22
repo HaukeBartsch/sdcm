@@ -5,7 +5,7 @@ Usage:
 ```bash
 sdcm -verbose -method link <input folder> <output folder>
 ```
-The output folder should exist, but be empty. This program will chicken out if the output folder already exists.
+The output folder should not exist, or be empty. This program will chicken out if the output folder already contains files.
 
 With the above options the output folder contains a directory tree with studies, series and links to the DICOM images:
 
