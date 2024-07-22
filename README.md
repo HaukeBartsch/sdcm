@@ -33,8 +33,8 @@ The following table compares the processing speeds of sdcm and Horos 4.0.1 (on M
 
 | Program | Task | Timing |
 | --- | --- | --- |
-| Horos v4.01 | process 244,617 DICOM and 1,300 non-DICOM files | 7m50s |
-| sdcm v0.0.2 | process 244,617 DICOM and 1,300 non-DICOM files  | 4m12s |
+| Horos v4.01 | process 244,617 DICOM and 1,317 non-DICOM files | 7m50s |
+| sdcm v0.0.2 | process 244,617 DICOM and 1,317 non-DICOM files | 4m12s |
 
 In this test Horos was asked to only "link" to the input folder. About 970 images per second can be processed by sdcm. Using "-method copy" approximately 200 files per second are processed on the same machine.
 
