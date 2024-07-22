@@ -5,7 +5,7 @@ Usage:
 ```bash
 sdcm -verbose -method link <input folder> <output folder>
 ```
-The output folder should exist, but be empty. This program will chicken out if it finds a folder called 'input' in the output.
+The output folder should exist, but be empty. This program will chicken out if it finds a folder called 'input' in the output folder.
 
 With the above options the output folder will contain a directory 'input' with studies, series and links to the DICOM images in the input folder:
 
@@ -35,13 +35,24 @@ Timing between sdcm and Horos 4.0.1 (on MacBook Air 13, M2 arm64) for processing
 | Horos v4.01 | process 244,617 DICOM and 1,300 non-DICOM files | 7m50s |
 | sdcm v0.0.2 | process 244,617 DICOM and 1,300 non-DICOM files  | 4m12s |
 
-In this test Horos was asked to not copy files but only use "links". The above "-verbose -method link" option was used for sdcm to create symbolic links in the output folder.
+In this test Horos was asked to only "link" in the input folder. About 1,000 images per second can be processed by sdcm.
 
+### Details
+
+Writing to disk is usually the slowest part of sorting DICOM files. To speed this up the '-method link' option will not copy the input files. Instead a symbolic link that points to the input file is created. In order to obtain a 'real' copy of the files dereference the symbolic links. The 'cp' program has an option '-L' that follows symbolic links:
+
+```bash
+cp -Lr <output folder>/input/<patient>/<study>/<series> /somewhere/else/
+```
+
+By default the option '-method copy' is used which is slower but copies files to the output folder. If you are are only interested in a single series you should use '-method link' followed by 'cp -L'. 
+
+Warning: Scanning non-DICOM files takes a lot of time. We use a heuristic here that a DICOM files either does not have an extension or has the ".dcm" extension. All other files will be ignored.
 
 
 ### Install on MacOS
 
-Download the sdcm executable that matches your platform. Copy the file to a folder in your path (e.g. /usr/local/bin).
+Download the sdcm executable that matches your platform. Copy the file (statically linked executable) to a folder in your path (e.g. /usr/local/bin).
 
 
 ```bash

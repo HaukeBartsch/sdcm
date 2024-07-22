@@ -17,6 +17,7 @@ import (
 	"regexp"
 	"runtime"
 	"strings"
+	"sync"
 	"time"
 
 	"flag"
@@ -45,13 +46,24 @@ var bytesWritten int64
 var ProcessDataPath string
 var InputDataPath string
 var startTime time.Time
+var spinner_c int = 0
+var spinner = []string{"⣾ ", "⣽ ", "⣻ ", "⢿ ", "⡿ ", "⣟ ", "⣯ ", "⣷ "}
+var listPatients sync.Map
+var listStudies sync.Map
+var listSeries sync.Map
 
 var (
-	methodFlag     string
-	verboseFlag    bool
-	exportViewFlag bool
-	versionFlag    bool
+	methodFlag       string
+	verboseFlag      bool
+	versionFlag      bool
+	outputFolderFlag string
 )
+
+func UpdateCounter(counters *sync.Map, key string) {
+	val, _ := counters.LoadOrStore(key, new(int64))
+	ptr := val.(*int64)
+	atomic.AddInt64(ptr, 1)
+}
 
 func exitGracefully(err error) {
 	fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -157,6 +169,14 @@ func populate(keyMap *map[tag.Tag]string, in_file string) {
 			}
 		}
 	}
+}
+
+func splitPath(path string) []string {
+	dir, last := filepath.Split(path)
+	if dir == "" {
+		return []string{last}
+	}
+	return append(splitPath(filepath.Clean(dir)), last)
 }
 
 // the path we get does not have the input path prefixed
@@ -290,55 +310,111 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 						description.ReferringPhysician = ReferringPhysician
 					}
 				}*/
+				// keep track of the patients, studies and series but only if we use verbose mode
+				if verboseFlag {
+					UpdateCounter(&listPatients, PatientID)
+					UpdateCounter(&listStudies, StudyInstanceUID)
+					UpdateCounter(&listSeries, SeriesInstanceUID)
+				}
+
 				var SOPInstanceUID string
 				SOPInstanceUIDVal, err := dataset.FindElementByTag(tag.SOPInstanceUID)
 				if err == nil {
 					SOPInstanceUID = dicom.MustGetStrings(SOPInstanceUIDVal.Value)[0]
 				}
 
-				oOrderPatientPath := filepath.Join(oOrderPath, PatientID+"_"+PatientName)
-				if _, err := os.Stat(oOrderPatientPath); os.IsNotExist(err) {
-					err := os.Mkdir(oOrderPatientPath, 0755)
-					if err != nil {
-						exitGracefully(fmt.Errorf("could not create data directory %s", oOrderPatientPath))
-					}
-				}
-				oOrderPatientDatePath := filepath.Join(oOrderPatientPath, StudyDate+"_"+StudyTime+"_"+StudyInstanceUID)
-				if _, err := os.Stat(oOrderPatientDatePath); os.IsNotExist(err) {
-					err := os.Mkdir(oOrderPatientDatePath, 0755)
-					if err != nil {
-						exitGracefully(fmt.Errorf("could not create data directory %s", oOrderPatientDatePath))
-					}
-				}
+				// now create the folder structure based on outputFolderFlag, treat the last entry as filename
+				pps := outputFolderFlag
+				pps = strings.Replace(pps, "{PatientID}", PatientID, -1)
+				pps = strings.Replace(pps, "{PatientName}", PatientName, -1)
+				pps = strings.Replace(pps, "{StudyDate}", StudyDate, -1)
+				pps = strings.Replace(pps, "{StudyTime}", StudyTime, -1)
+				pps = strings.Replace(pps, "{StudyInstanceUID}", StudyInstanceUID, -1)
+				pps = strings.Replace(pps, "{SeriesInstanceUID}", SeriesInstanceUID, -1)
+				pps = strings.Replace(pps, "{SeriesDescription}", SeriesDescription, -1)
+				pps = strings.Replace(pps, "{StudyInstanceUID}", StudyInstanceUID, -1)
+				pps = strings.Replace(pps, "{SOPInstanceUID}", SOPInstanceUID, -1)
+				pps = strings.Replace(pps, "{Modality}", Modality, -1)
+				pps = strings.Replace(pps, "{SeriesNumber}", SeriesNumber, -1)
+				pps = strings.Replace(pps, "{counter}", fmt.Sprintf("%06d", counter), -1) // use the global counter
+				pps = strings.Replace(pps, " ", "", -1)                                   // remove spaces
 
-				d_name := strings.Replace(SeriesNumber+"_"+SeriesDescription+"_"+SeriesInstanceUID, "/", "_", -1)
-				d_name = strings.Replace(d_name, " ", "", -1)
-				oOrderPatientDateSeriesNumber := filepath.Join(oOrderPatientDatePath, d_name)
-				if _, err := os.Stat(oOrderPatientDateSeriesNumber); os.IsNotExist(err) {
-					err := os.Mkdir(oOrderPatientDateSeriesNumber, 0755)
-					if err != nil {
-						exitGracefully(fmt.Errorf("could not create data directory %s", oOrderPatientDateSeriesNumber))
+				pathPieces := splitPath(pps)
+				piece := 0
+				oOrderPatientPath := oOrderPath
+				for piece < len(pathPieces)-1 {
+					oOrderPatientPath = filepath.Join(oOrderPatientPath, pathPieces[piece])
+					if _, err := os.Stat(oOrderPatientPath); os.IsNotExist(err) {
+						err := os.Mkdir(oOrderPatientPath, 0755)
+						if err != nil {
+							exitGracefully(fmt.Errorf("could not create data directory %s", oOrderPatientPath))
+						}
 					}
+					piece = piece + 1
 				}
+				// filename is
+				fname := pathPieces[len(pathPieces)-1]
 
-				outputPath := oOrderPatientDateSeriesNumber
+				/*				oOrderPatientPath := filepath.Join(oOrderPath, PatientID+"_"+PatientName)
+								if _, err := os.Stat(oOrderPatientPath); os.IsNotExist(err) {
+									err := os.Mkdir(oOrderPatientPath, 0755)
+									if err != nil {
+										exitGracefully(fmt.Errorf("could not create data directory %s", oOrderPatientPath))
+									}
+								}
+								oOrderPatientDatePath := filepath.Join(oOrderPatientPath, StudyDate+"_"+StudyTime+"_"+StudyInstanceUID)
+								if _, err := os.Stat(oOrderPatientDatePath); os.IsNotExist(err) {
+									err := os.Mkdir(oOrderPatientDatePath, 0755)
+									if err != nil {
+										exitGracefully(fmt.Errorf("could not create data directory %s", oOrderPatientDatePath))
+									}
+								}
+
+								d_name := strings.Replace(SeriesNumber+"_"+SeriesDescription+"_"+SeriesInstanceUID, "/", "_", -1)
+								d_name = strings.Replace(d_name, " ", "", -1)
+								oOrderPatientDateSeriesNumber := filepath.Join(oOrderPatientDatePath, d_name)
+								if _, err := os.Stat(oOrderPatientDateSeriesNumber); os.IsNotExist(err) {
+									err := os.Mkdir(oOrderPatientDateSeriesNumber, 0755)
+									if err != nil {
+										exitGracefully(fmt.Errorf("could not create data directory %s", oOrderPatientDateSeriesNumber))
+									}
+								}
+
+								outputPath := oOrderPatientDateSeriesNumber */
+				outputPath := oOrderPatientPath
 
 				//inputFile, _ := os.Open(path)
 				//data, _ := io.ReadAll(inputFile)
 				// what is the next unused filename? We can have this case if other series are exported as well
 				//fname := fmt.Sprintf("%06d.dcm", counter)
-				fname := fmt.Sprintf("%s_%s.dcm", Modality, SOPInstanceUID)
+				// fname := fmt.Sprintf("%s_%s.dcm", Modality, SOPInstanceUID)
 				outputPathFileName := fmt.Sprintf("%s/%s", outputPath, fname)
 				_, err = os.Stat(outputPathFileName)
 				var c int = 0
 				atomic.AddInt32(&counter, 1)
 				if verboseFlag && counter%200 == 0 {
-					fmt.Printf("\033[A\033[2K%d [%.0f files / second]\n", counter, (float64(counter))/time.Since(startTime).Seconds())
+					numPatients := 0
+					listPatients.Range(func(key, value interface{}) bool {
+						numPatients = numPatients + 1
+						return true
+					})
+					numStudies := 0
+					listStudies.Range(func(key, value interface{}) bool {
+						numStudies = numStudies + 1
+						return true
+					})
+					numSeries := 0
+					listSeries.Range(func(key, value interface{}) bool {
+						numSeries = numSeries + 1
+						return true
+					})
+					fmt.Printf("\033[A\033[2K\033[94;49m%s%d\033[37m [%.0f files / s] P%04d S%04d S%04d\033[39m\033[49m\n", spinner[(spinner_c)%len(spinner)], counter, (float64(counter))/time.Since(startTime).Seconds(), numPatients, numStudies, numSeries)
+					spinner_c = spinner_c + 1
 				}
 
 				for !os.IsNotExist(err) {
-					c = c + 1 // make filename unique
-					fname := fmt.Sprintf("%s_%s_%03d.dcm", Modality, SOPInstanceUID, c)
+					c = c + 1 // make filename unique by adding a number
+					fname := fmt.Sprintf("%s_%03d%s", strings.TrimSuffix(fname, filepath.Ext(fname)), c, filepath.Ext(fname))
 					outputPathFileName = fmt.Sprintf("%s/%s", outputPath, fname)
 					//outputPathFileName := fmt.Sprintf("%s/%s_%03d.dcm", outputPath, SOPInstanceUID, c)
 					_, err = os.Stat(outputPathFileName)
@@ -353,7 +429,7 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 					}
 				} else {
 					// instead of copy we assume we want a symbolic link
-					exitGracefully(errors.New("unknown option, we support only copy|link"))
+					exitGracefully(errors.New("unknown option for method, we support only \"copy\" and \"link\""))
 				}
 				if err != nil {
 					fmt.Println(err)
@@ -361,74 +437,6 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 				atomic.AddInt64(&bytesWritten, bw)
 				//os.WriteFile(outputPathFileName, data, 0644)
 
-				// We can do a better destination path here. The friendly way of doing this is
-				// to provide separate folders aka the BIDS way.
-				// We can create a shadow structure that uses symlinks and sorts everything into
-				// sub-folders. Lets create a data view and place the info in that directory.
-				//symOrder := true
-				if exportViewFlag {
-					symOrderPath := filepath.Join(dest_path, "input_view_dicom_series")
-					if _, err := os.Stat(symOrderPath); os.IsNotExist(err) {
-						err := os.Mkdir(symOrderPath, 0755)
-						if err != nil {
-							exitGracefully(fmt.Errorf("could not create symlink data directory %s", symOrderPath))
-						}
-					}
-					symOrderPatientPath := filepath.Join(symOrderPath, PatientID+"_"+PatientName)
-					symOrderPatientPath = strings.Replace(symOrderPatientPath, " ", ".", -1)
-					if _, err := os.Stat(symOrderPatientPath); os.IsNotExist(err) {
-						err := os.Mkdir(symOrderPatientPath, 0755)
-						if err != nil {
-							exitGracefully(fmt.Errorf("could not create symlink data directory %s", symOrderPatientPath))
-						}
-					}
-					symOrderPatientDatePath := filepath.Join(symOrderPatientPath, StudyDate+"_"+StudyTime)
-					symOrderPatientDatePath = strings.Replace(symOrderPatientDatePath, " ", ".", -1)
-					if _, err := os.Stat(symOrderPatientDatePath); os.IsNotExist(err) {
-						err := os.Mkdir(symOrderPatientDatePath, 0755)
-						if err != nil {
-							exitGracefully(fmt.Errorf("could not create symlink data directory %s", symOrderPatientDatePath))
-						}
-					}
-					d_name := strings.Replace(SeriesNumber+"_"+SeriesDescription, "/", "_", -1)
-					symOrderPatientDateSeriesNumber := filepath.Join(symOrderPatientDatePath, d_name)
-					symOrderPatientDateSeriesNumber = strings.Replace(symOrderPatientDateSeriesNumber, " ", ".", -1)
-					if _, err := os.Stat(symOrderPatientDateSeriesNumber); os.IsNotExist(err) {
-						err := os.Mkdir(symOrderPatientDateSeriesNumber, 0755)
-						if err != nil {
-							exitGracefully(fmt.Errorf("could not create symlink data directory %s", symOrderPatientDateSeriesNumber))
-						}
-					}
-					//if r, err := filepath.Rel(dest_path, symOrderPatientDateSeriesNumber); err == nil {
-					//	description.InputViewDICOMSeriesPath = r
-					//} else {
-					//	description.InputViewDICOMSeriesPath = symOrderPatientDateSeriesNumber
-					//}
-					// now create symbolic link here to our outputPath + counter .dcm == outputPathFileName
-					// this prevents any duplication of space taken up by the images
-					fname := fmt.Sprintf("%s_%s.dcm", Modality, SOPInstanceUID)
-					symlink := filepath.Join(symOrderPatientDateSeriesNumber, fname)
-					// in some cases the symlink might already exist, we can make it unique by adding some number
-					_, err = os.Stat(symlink)
-					var c int = 0
-					for !os.IsNotExist(err) {
-						c = c + 1 // make filename unique
-						fname2 := fmt.Sprintf("%s_%s_%03d.dcm", Modality, SOPInstanceUID, c)
-						symlink = filepath.Join(symOrderPatientDateSeriesNumber, fname2)
-						//outputPathFileName := fmt.Sprintf("%s/%s_%03d.dcm", outputPath, SOPInstanceUID, c)
-						_, err = os.Stat(symlink)
-					}
-
-					// use outputPathFileName as the source of the symlink and make the symlink relative
-					relativeDataPath := fmt.Sprintf("../%s", fname) // WRONG
-					if r, err := filepath.Rel(symOrderPatientDateSeriesNumber, outputPath); err == nil {
-						relativeDataPath = r
-						relativeDataPath = filepath.Join(relativeDataPath, fname)
-					}
-					if err = os.Symlink(relativeDataPath, symlink); err != nil {
-						fmt.Printf("Warning: could not create symlink %s for %s, %s\n", symlink, relativeDataPath, err)
-					}
-				}
 				//fmt.Println("path: ", fmt.Sprintf("%s/%06d.dcm", outputPath, counter))
 				//counter = counter + 1
 			}
@@ -483,7 +491,7 @@ func sort(source_path string, dest_path string) int32 {
 	if verboseFlag {
 		sizeStr := ""
 		if methodFlag != "link" {
-			sizeStr = fmt.Sprintf("[%s written]", FormatFileSize(float64(bytesWritten), 1024.0))
+			sizeStr = fmt.Sprintf("[%s]", FormatFileSize(float64(bytesWritten), 1024.0))
 		}
 		fmt.Printf("done in %s %s\n", time.Since(startTime), sizeStr)
 	}
@@ -511,10 +519,10 @@ func main() {
 	log.SetFlags(0)
 	log.SetOutput(io.Discard /*ioutil.Discard*/)
 
-	flag.StringVar(&methodFlag, "method", "copy", "How the output should be structured (copy|link)")
+	flag.StringVar(&methodFlag, "method", "copy", "Create symbolic links (faster) or copy files (copy|link)")
+	flag.StringVar(&outputFolderFlag, "folder", "{PatientID}_{PatientName}/{StudyDate}_{StudyTime}_{StudyInstanceUID}/{SeriesNumber}_{SeriesDescription}_{SeriesInstanceUID}/{Modality}_{SOPInstanceUID}.dcm", "Specify the requested output folder structure using the following DICOM tags:\n\t{counter}, {PatientID}, {PatientName}, {StudyDate},\n\t{StudyTime}, {SeriesDescription}, {SeriesNumber},\n\t{Modality}, {StudyInstanceUID}, {SeriesInstanceUID}, {SOPInstanceUID}\n")
 	flag.BoolVar(&verboseFlag, "verbose", false, "Print more output while creating the output folder")
 	flag.BoolVar(&versionFlag, "version", false, "Print the version")
-	flag.BoolVar(&exportViewFlag, "patientView", false, "Create an additional patient view tree with symbolic links to input")
 	flag.Parse()
 
 	if versionFlag {
@@ -554,7 +562,7 @@ func main() {
 	}
 
 	if verboseFlag {
-		fmt.Printf("Sort %s...\n", input)
+		fmt.Printf("Parse %s...\n", input)
 	}
 	numFiles := sort(input, flag.Args()[1])
 	if verboseFlag {
@@ -562,6 +570,6 @@ func main() {
 		if numFiles == 1 {
 			s = ""
 		}
-		fmt.Printf("sorted %d file%s in: %s [%d non-DICOM files ignored]\n", numFiles, s, ProcessDataPath, counterError)
+		fmt.Printf("✓ sorted %d file%s into %s [%d non-DICOM files ignored]\n", numFiles, s, ProcessDataPath, counterError)
 	}
 }
