@@ -6,9 +6,9 @@ Usage:
 sdcm -verbose -method link <input folder> <output folder>
 ```
 
-The output folder should not exist, or be empty. This program will chicken out if the output folder already contains files.
+The output folder should not exist, or be empty.
 
-The output folder contains a directory tree with studies, series and (symbolic) links to the DICOM images:
+Here an example processing run with a generated output directory tree with studies, series and (symbolic) links to the DICOM images:
 
 ```bash
 > sdcm -verbose -method link /Volumes/T7/data/LIDC-IDRI/LIDC-IDRI /tmp/bbb
