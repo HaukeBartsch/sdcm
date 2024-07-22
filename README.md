@@ -8,10 +8,10 @@ sdcm -verbose -method link <input folder> <output folder>
 
 The output folder should not exist, or be empty. This program will chicken out if the output folder already contains files.
 
-With the above options the output folder contains a directory tree with studies, series and links to the DICOM images:
+The output folder contains a directory tree with studies, series and (symbolic) links to the DICOM images:
 
 ```bash
-> ./build/macos-arm64/sdcm -verbose -method link /Volumes/T7/data/LIDC-IDRI/LIDC-IDRI /tmp/bbb
+> sdcm -verbose -method link /Volumes/T7/data/LIDC-IDRI/LIDC-IDRI /tmp/bbb
 Parse /Volumes/T7/data/LIDC-IDRI/LIDC-IDRI...
 ⣯ 244600 [988 files / s] P1010 S1308 S1398
 done in 4m7.765658167s 
