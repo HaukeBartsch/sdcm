@@ -587,6 +587,6 @@ func main() {
 		if numFiles == 1 {
 			s = ""
 		}
-		fmt.Printf("✓ sorted %d file%s into %s [%d non-DICOM files ignored]\n", numFiles, s, ProcessDataPath, counterError)
+		fmt.Printf("✓ sorted %d file%s [%d non-DICOM files ignored]\n", numFiles, s, counterError)
 	}
 }
