@@ -89,14 +89,16 @@ The folder option can also be set as an environment variable SDCM_FOLDER_PATH.
 Download the sdcm executable that matches your platform. Copy the file (statically linked executable) to a folder in your path (e.g. /usr/local/bin).
 
 
+Intel-based mac (amd64)
+
 ```bash
-# Intel-based mac (amd64)
 wget -qO- https://github.com/HaukeBartsch/sdcm/raw/main/build/linux-amd64/sdcm > /usr/local/bin/sdcm
 chmod +x /usr/local/bin/sdcm
 ```
 
+Silicon-based mac (arm64)
+
 ```bash
-# Silicon-based mac (arm64)
 wget -qO- https://github.com/HaukeBartsch/sdcm/raw/main/build/macos-arm64/sdcm > /usr/local/bin/sdcm
 chmod +x /usr/local/bin/sdcm
 ```
