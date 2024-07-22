@@ -5,11 +5,13 @@
 package main
 
 import (
+	"bytes"
 	_ "embed"
 	"errors"
 	"fmt"
 	"io"
 	"log"
+	"math"
 	"os"
 	"path/filepath"
 	"regexp"
@@ -17,15 +19,19 @@ import (
 	"strings"
 	"time"
 
+	"flag"
 	"sync/atomic"
 
 	"github.com/iafan/cwalk"
 
 	"github.com/suyashkumar/dicom"
 	"github.com/suyashkumar/dicom/pkg/tag"
+
+	"net/http"
+	_ "net/http/pprof"
 )
 
-const version string = "0.0.1"
+const version string = "0.0.2"
 
 // The string below will be replaced during build time using
 // -ldflags "-X main.compileDate=`date -u +.%Y%m%d.%H%M%S"`"
@@ -34,9 +40,18 @@ var compileDate string = ".unknown"
 var own_name string = "sdcm"
 
 var counter int32
+var counterError int32
 var bytesWritten int64
 var ProcessDataPath string
 var InputDataPath string
+var startTime time.Time
+
+var (
+	methodFlag     string
+	verboseFlag    bool
+	exportViewFlag bool
+	versionFlag    bool
+)
 
 func exitGracefully(err error) {
 	fmt.Fprintf(os.Stderr, "error: %v\n", err)
@@ -102,8 +117,55 @@ func printMem() {
 	log.Printf("System: %8d Inuse: %8d Released: %8d Objects: %6d\n", ms.HeapSys, ms.HeapInuse, ms.HeapReleased, ms.HeapObjects)
 }
 
+func populate(keyMap *map[tag.Tag]string, in_file string) {
+	// put all values into the keyMap, overwrite previous values
+	// reset the keyMap
+	var numKeys int = len(*keyMap)
+
+	dcm, err := os.Open(in_file)
+	if err != nil {
+		exitGracefully(fmt.Errorf("unable to open %s. Error: %v", in_file, err))
+	}
+	defer dcm.Close()
+
+	data, err := io.ReadAll(dcm)
+	if err != nil {
+		exitGracefully(fmt.Errorf("unable to read file into memory for benchmark: %v", err))
+	}
+
+	r := bytes.NewReader(data)
+	p, _ := dicom.NewParser(r, int64(len(data)), nil, dicom.SkipPixelData())
+
+	var cc int = 0
+	for err == nil {
+		t, err := p.Next() // there is still a copy of this tag in p.Elements after this call, not needed...
+		if err != nil {
+			break
+		}
+		// t is a dicom.Element
+		val, ok := (*keyMap)[t.Tag]
+		if ok {
+			if val == "" {
+				v := t.Value.GetValue().([]string)
+				if len(v) > 0 {
+					(*keyMap)[t.Tag] = v[0]
+				}
+				cc = cc + 1 // we will use this even if the value is an empty string
+				if cc == numKeys {
+					break // we are done
+				}
+			}
+		}
+	}
+}
+
 // the path we get does not have the input path prefixed
 func walkFunc(path string, info os.FileInfo, err error) error {
+	if info == nil {
+		// might happen if the directory name does not exist...
+		return nil
+	}
+
 	// func(path string, info os.FileInfo, err error) error {
 	if info.IsDir() {
 		return nil
@@ -111,6 +173,15 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 	if err != nil {
 		return err
 	}
+	// we can filter out files that take a long time if we allow only
+	//  - files without an extension, or
+	//  - files with .dcm as extension
+	if filepath.Ext(path) != "" && filepath.Ext(path) != ".dcm" {
+		atomic.AddInt32(&counterError, 1)
+		//fmt.Printf("ignore file: %s\n", path)
+		return nil // ignore this file
+	}
+
 	//fmt.Printf("\033[2J\n")
 
 	dest_path := ProcessDataPath
@@ -126,7 +197,29 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 	}
 	in_file := filepath.Join(InputDataPath, path)
 
+	// Ok, we can try to be faster if we do not read the whole set, we would like
+	// to also stop parsing after we have all the keys we need.
+	// BenchmarkParser_NextAPI
+
+	/*	sT := time.Now()
+		keyMap := map[tag.Tag]string{
+			tag.StudyInstanceUID:  "",
+			tag.SeriesInstanceUID: "",
+			tag.SOPInstanceUID:    "",
+			tag.PatientID:         "",
+			tag.PatientName:       "",
+			tag.SeriesDescription: "",
+			tag.StudyDate:         "",
+			tag.StudyTime:         "",
+			tag.SeriesNumber:      "",
+			tag.Modality:          "",
+		}
+		populate(&keyMap, in_file)
+		fmt.Printf("populate time: %v %s\n", time.Since(sT), path) */
+
+	//sT := time.Now()
 	dataset, err := dicom.ParseFile(in_file, nil, dicom.SkipPixelData()) // See also: dicom.Parse which has a generic io.Reader API.
+	//fmt.Printf("ParseFile time: %v %s\n", time.Since(sT), path)
 	if err == nil {
 		//printMem()
 		StudyInstanceUIDVal, err := dataset.FindElementByTag(tag.StudyInstanceUID)
@@ -239,14 +332,29 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 				_, err = os.Stat(outputPathFileName)
 				var c int = 0
 				atomic.AddInt32(&counter, 1)
+				if verboseFlag && counter%200 == 0 {
+					fmt.Printf("\033[A\033[2K%d [%.0f files / second]\n", counter, (float64(counter))/time.Since(startTime).Seconds())
+				}
+
 				for !os.IsNotExist(err) {
 					c = c + 1 // make filename unique
 					fname := fmt.Sprintf("%s_%s_%03d.dcm", Modality, SOPInstanceUID, c)
-					outputPathFileName := fmt.Sprintf("%s/%s", outputPath, fname)
+					outputPathFileName = fmt.Sprintf("%s/%s", outputPath, fname)
 					//outputPathFileName := fmt.Sprintf("%s/%s_%03d.dcm", outputPath, SOPInstanceUID, c)
 					_, err = os.Stat(outputPathFileName)
 				}
-				bw, err := copyFileContents(in_file, outputPathFileName)
+				var bw int64 = 0
+				err = nil
+				if methodFlag == "copy" {
+					bw, err = copyFileContents(in_file, outputPathFileName)
+				} else if methodFlag == "link" {
+					if err = os.Symlink(in_file, outputPathFileName); err != nil {
+						fmt.Printf("Warning: could not create symlink %s for %s, %s\n", in_file, outputPathFileName, err)
+					}
+				} else {
+					// instead of copy we assume we want a symbolic link
+					exitGracefully(errors.New("unknown option, we support only copy|link"))
+				}
 				if err != nil {
 					fmt.Println(err)
 				}
@@ -257,8 +365,8 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 				// to provide separate folders aka the BIDS way.
 				// We can create a shadow structure that uses symlinks and sorts everything into
 				// sub-folders. Lets create a data view and place the info in that directory.
-				symOrder := true
-				if symOrder {
+				//symOrder := true
+				if exportViewFlag {
 					symOrderPath := filepath.Join(dest_path, "input_view_dicom_series")
 					if _, err := os.Stat(symOrderPath); os.IsNotExist(err) {
 						err := os.Mkdir(symOrderPath, 0755)
@@ -325,6 +433,8 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 				//counter = counter + 1
 			}
 		}
+	} else {
+		atomic.AddInt32(&counterError, 1)
 	}
 
 	return nil
@@ -354,22 +464,29 @@ func sort(source_path string, dest_path string) int32 {
 	if _, err := os.Stat(destination_path); os.IsNotExist(err) {
 		err := os.Mkdir(destination_path, 0755)
 		if err != nil {
-			exitGracefully(errors.New("could not create data directory"))
+			exitGracefully(fmt.Errorf("could not create output directory %s. Output directory should exist", destination_path))
 		}
 	}
 	// storing information in global objects
 	counter = 0 // we are using this to name DICOM files, not possible here!
+	counterError = 0
 	bytesWritten = 0
 	ProcessDataPath = dest_path
 	InputDataPath = source_path
-	//fmt.Printf("\033[2J\n") // clear the screen
+	fmt.Printf("\n")
 
-	start := time.Now()
+	startTime = time.Now()
 	err := cwalk.WalkWithSymlinks(source_path, walkFunc)
 	if err != nil {
 		fmt.Printf("Error : %s\n", err.Error())
 	}
-	fmt.Printf("done in %s [%s written]\n", time.Since(start), FormatFileSize(float64(bytesWritten), 1024.0))
+	if verboseFlag {
+		sizeStr := ""
+		if methodFlag != "link" {
+			sizeStr = fmt.Sprintf("[%s written]", FormatFileSize(float64(bytesWritten), 1024.0))
+		}
+		fmt.Printf("done in %s %s\n", time.Since(startTime), sizeStr)
+	}
 
 	return counter
 }
@@ -384,27 +501,67 @@ type SeriesInstanceUIDWithName struct {
 
 func main() {
 
+	// Server for pprof
+	go func() {
+		fmt.Println(http.ListenAndServe("localhost:6060", nil))
+	}()
+
 	//rand.Seed(time.Now().UnixNano())
 	// disable logging
-	//log.SetFlags(0)
-	//log.SetOutput(io.Discard /*ioutil.Discard*/)
+	log.SetFlags(0)
+	log.SetOutput(io.Discard /*ioutil.Discard*/)
+
+	flag.StringVar(&methodFlag, "method", "copy", "How the output should be structured (copy|link)")
+	flag.BoolVar(&verboseFlag, "verbose", false, "Print more output while creating the output folder")
+	flag.BoolVar(&versionFlag, "version", false, "Print the version")
+	flag.BoolVar(&exportViewFlag, "patientView", false, "Create an additional patient view tree with symbolic links to input")
+	flag.Parse()
+
+	if versionFlag {
+		timeThen := time.Now()
+		setTime := false
+		if compileDate != "" {
+			layout := ".20060102.150405"
+			t, err := time.Parse(layout, compileDate)
+			if err == nil {
+				timeThen = t
+				setTime = true
+			}
+		}
+
+		fmt.Printf("sdcm version %s%s", version, compileDate)
+		if setTime {
+			fmt.Printf(" build %.0f days ago\n", math.Round(time.Since(timeThen).Hours()/24))
+		} else {
+			fmt.Println()
+		}
+		os.Exit(0)
+	}
 
 	own_name = os.Args[0]
 
 	if len(os.Args) < 3 {
-		exitGracefully(errors.New("Usage: <input path> <output path>"))
+		fmt.Println("Usage: <input path> <output path>")
 		os.Exit(-1)
 	}
-	input, err := filepath.Abs(os.Args[1])
+	input, err := filepath.Abs(flag.Args()[0])
 	if err != nil {
-		exitGracefully(errors.New("input path not found"))
+		exitGracefully(errors.New("input path could not be found"))
 	}
 	// we will error out of the output path exists already
-	if _, err := os.Stat(filepath.Join(os.Args[2], "input")); err == nil {
-		exitGracefully(fmt.Errorf("output path %s already exists, cowardly refusing to continue", filepath.Join(os.Args[2], "input")))
+	if _, err := os.Stat(filepath.Join(flag.Args()[1], "input")); err == nil {
+		exitGracefully(fmt.Errorf("output path %s already exists, cowardly refusing to continue. Remove output or specify a new directory", filepath.Join(flag.Args()[1], "input")))
 	}
 
-	fmt.Printf("Sort %s...\n", input)
-	numFiles := sort(input, os.Args[2])
-	fmt.Printf("%d sorted files in: [%s]\n", numFiles, ProcessDataPath)
+	if verboseFlag {
+		fmt.Printf("Sort %s...\n", input)
+	}
+	numFiles := sort(input, flag.Args()[1])
+	if verboseFlag {
+		s := "s"
+		if numFiles == 1 {
+			s = ""
+		}
+		fmt.Printf("sorted %d file%s in: %s [%d non-DICOM files ignored]\n", numFiles, s, ProcessDataPath, counterError)
+	}
 }

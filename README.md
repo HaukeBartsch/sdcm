@@ -3,9 +3,41 @@
 Usage:
 
 ```bash
-sdcm <input folder> <output folder>
+sdcm -verbose -method link <input folder> <output folder>
 ```
-The output folder should exist, but be empty. This program will chicken out if it finds already a folder 'input' in the output.
+The output folder should exist, but be empty. This program will chicken out if it finds a folder called 'input' in the output.
+
+With the above options the output folder will contain a directory 'input' with studies, series and links to the DICOM images in the input folder:
+
+```bash
+<output folder>
+└── input
+    ├── LIDC-IDRI-0001_
+    │   ├── 20000101__1.3.6.1.4.1.14519.5.2.1.6279.6001.175012972118199124641098335511
+    │   │   └── 3000923__1.3.6.1.4.1.14519.5.2.1.6279.6001.141365756818074696859567662357
+    │   │       ├── DX_1.3.6.1.4.1.14519.5.2.1.6279.6001.257944242390114100388269195181.dcm -> /Volumes/T7/data/LIDC-IDRI/LIDC-IDRI/LIDC-IDRI-0001/01-01-2000-35511/3000923-62357/000002.dcm
+    │   │       └── DX_1.3.6.1.4.1.14519.5.2.1.6279.6001.307896144859643716158189196068.dcm -> /Volumes/T7/data/LIDC-IDRI/LIDC-IDRI/LIDC-IDRI-0001/01-01-2000-35511/3000923-62357/000001.dcm
+    │   └── 20000101__1.3.6.1.4.1.14519.5.2.1.6279.6001.298806137288633453246975630178
+    │       └── 3000566__1.3.6.1.4.1.14519.5.2.1.6279.6001.179049373636438705059720603192
+    │           ├── CT_1.3.6.1.4.1.14519.5.2.1.6279.6001.100954823835603369147775570297.dcm -> /Volumes/T7/data/LIDC-IDRI/LIDC-IDRI/LIDC-IDRI-0001/01-01-2000-30178/3000566-03192/000122.dcm
+    │           ├── CT_1.3.6.1.4.1.14519.5.2.1.6279.6001.101045044159171311719370216637.dcm -> /Volumes/T7/data/LIDC-IDRI/LIDC-IDRI/LIDC-IDRI-0001/01-01-2000-30178/3000566-03192/000107.dcm
+    │           ├── CT_1.3.6.1.4.1.14519.5.2.1.6279.6001.104640960159524969909035876745.dcm -> /Volumes/T7/data/LIDC-IDRI/LIDC-IDRI/LIDC-IDRI-0001/01-01-2000-30178/3000566-03192/000075.dcm
+    │           ├── CT_1.3.6.1.4.1.14519.5.2.1.6279.6001.104650143968793544078397221048.dcm -> /Volumes/T7/data/LIDC-IDRI/LIDC-IDRI/LIDC-IDRI-0001/01-01-2000-30178/3000566-03192/000124.dcm
+    ...
+```
+
+## Timing
+
+Timing between sdcm and Horos 4.0.1 (on MacBook Air 13, M2 arm64) for processing of 244,617 DICOM images (LIDC-IDRI dataset of XRay and CT on external SSD):
+
+| Program | Task | Timing |
+| --- | --- | --- |
+| Horos v4.01 | process 244,617 DICOM and 1,300 non-DICOM files | 7m50s |
+| sdcm v0.0.2 | process 244,617 DICOM and 1,300 non-DICOM files  | 4m12s |
+
+In this test Horos was asked to not copy files but only use "links". The above "-verbose -method link" option was used for sdcm to create symbolic links in the output folder.
+
+
 
 ### Install on MacOS
 
