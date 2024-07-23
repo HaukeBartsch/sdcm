@@ -183,6 +183,15 @@ func splitPath(path string) []string {
 	return append(splitPath(filepath.Clean(dir)), last)
 }
 
+func isNum(s string) bool {
+	for _, v := range s {
+		if v < '0' || v > '9' {
+			return false
+		}
+	}
+	return true
+}
+
 // the path we get does not have the input path prefixed
 func walkFunc(path string, info os.FileInfo, err error) error {
 	if info == nil {
@@ -221,10 +230,13 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 	// we can filter out files that take a long time if we allow only
 	//  - files without an extension, or
 	//  - files with .dcm as extension
-	if filepath.Ext(path) != "" && strings.ToLower(filepath.Ext(path)) != ".dcm" {
-		atomic.AddInt32(&counterError, 1)
-		//fmt.Printf("ignore file: %s\n", path)
-		return nil // ignore this file
+	//  - files with an extension that contains only numbers (files named by UID)
+	if filepath.Ext(path) != "" {
+		if strings.ToLower(filepath.Ext(path)) != ".dcm" && !isNum(filepath.Ext(path)[1:]) && len(filepath.Ext(path)) < 5 {
+			atomic.AddInt32(&counterError, 1)
+			//fmt.Printf("ignore file: %s\n", path)
+			return nil // ignore this file
+		}
 	}
 
 	//fmt.Printf("\033[2J\n")
@@ -464,6 +476,7 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 			}
 		}
 	} else {
+		//fmt.Printf("Tried to read but failed %s\n", path)
 		atomic.AddInt32(&counterError, 1)
 	}
 
