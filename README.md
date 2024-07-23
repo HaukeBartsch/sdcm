@@ -1,5 +1,7 @@
 # SDCM - sort dicom files into folders
 
+![example run](https://github.com/HaukeBartsch/sdcm/raw/main/images/sdcm.gif)
+
 Usage:
 
 ```bash
