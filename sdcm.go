@@ -16,6 +16,7 @@ import (
 	"path/filepath"
 	"regexp"
 	"runtime"
+	"strconv"
 	"strings"
 	"sync"
 	"time"
@@ -28,7 +29,8 @@ import (
 	"github.com/suyashkumar/dicom"
 	"github.com/suyashkumar/dicom/pkg/tag"
 
-	"net/http"
+	"golang.org/x/text/message"
+
 	_ "net/http/pprof"
 )
 
@@ -51,6 +53,8 @@ var spinner = []string{"⣾ ", "⣽ ", "⣻ ", "⢿ ", "⡿ ", "⣟ ", "⣯ ", "
 var listPatients sync.Map
 var listStudies sync.Map
 var listSeries sync.Map
+
+var fmt_local *message.Printer
 
 var (
 	methodFlag       string
@@ -193,6 +197,27 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 	if err != nil {
 		return err
 	}
+
+	if verboseFlag && (counter+counterError)%100 == 0 {
+		numPatients := 0
+		listPatients.Range(func(key, value interface{}) bool {
+			numPatients = numPatients + 1
+			return true
+		})
+		numStudies := 0
+		listStudies.Range(func(key, value interface{}) bool {
+			numStudies = numStudies + 1
+			return true
+		})
+		numSeries := 0
+		listSeries.Range(func(key, value interface{}) bool {
+			numSeries = numSeries + 1
+			return true
+		})
+		spinner_c = int(math.Round(time.Since(startTime).Seconds()))
+		fmt_local.Printf("\033[A\033[2K\033[94;49m%s%d\033[37m [%.0f files / s] P %d S %d S %d [S %d]\033[39m\033[49m\n", spinner[(spinner_c)%len(spinner)], counter, (float64(counter))/time.Since(startTime).Seconds(), numPatients, numStudies, numSeries, counterError)
+	}
+
 	// we can filter out files that take a long time if we allow only
 	//  - files without an extension, or
 	//  - files with .dcm as extension
@@ -229,6 +254,7 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 			tag.PatientID:         "",
 			tag.PatientName:       "",
 			tag.SeriesDescription: "",
+			tag.StudyDescription:  "",
 			tag.StudyDate:         "",
 			tag.StudyTime:         "",
 			tag.SeriesNumber:      "",
@@ -255,6 +281,12 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 				if err == nil {
 					SeriesDescription = dicom.MustGetStrings(SeriesDescriptionVal.Value)[0]
 					SeriesDescription = clearString(SeriesDescription)
+				}
+				var StudyDescription string
+				StudyDescriptionVal, err := dataset.FindElementByTag(tag.StudyDescription)
+				if err == nil {
+					StudyDescription = dicom.MustGetStrings(StudyDescriptionVal.Value)[0]
+					StudyDescription = clearString(StudyDescription)
 				}
 				var PatientID string
 				PatientIDVal, err := dataset.FindElementByTag(tag.PatientID)
@@ -332,10 +364,17 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 				pps = strings.Replace(pps, "{StudyInstanceUID}", StudyInstanceUID, -1)
 				pps = strings.Replace(pps, "{SeriesInstanceUID}", SeriesInstanceUID, -1)
 				pps = strings.Replace(pps, "{SeriesDescription}", SeriesDescription, -1)
+				pps = strings.Replace(pps, "{StudyDescription}", StudyDescription, -1)
 				pps = strings.Replace(pps, "{StudyInstanceUID}", StudyInstanceUID, -1)
 				pps = strings.Replace(pps, "{SOPInstanceUID}", SOPInstanceUID, -1)
 				pps = strings.Replace(pps, "{Modality}", Modality, -1)
-				pps = strings.Replace(pps, "{SeriesNumber}", SeriesNumber, -1)
+				sn, err := strconv.Atoi(SeriesNumber)
+				if err == nil {
+					pps = strings.Replace(pps, "{SeriesNumber}", fmt.Sprintf("%02d", sn), -1)
+				} else {
+					// fallback
+					pps = strings.Replace(pps, "{SeriesNumber}", SeriesNumber, -1)
+				}
 				pps = strings.Replace(pps, "{counter}", fmt.Sprintf("%06d", counter), -1) // use the global counter
 				pps = strings.Replace(pps, " ", "-", -1)                                  // remove spaces
 
@@ -343,11 +382,14 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 				piece := 0
 				oOrderPatientPath := oOrderPath
 				for piece < len(pathPieces)-1 {
+					// this loop will concurrently try to create these folders, maybe they exist already even if we get an error in Mkdir
 					oOrderPatientPath = filepath.Join(oOrderPatientPath, pathPieces[piece])
 					if _, err := os.Stat(oOrderPatientPath); os.IsNotExist(err) {
 						err := os.Mkdir(oOrderPatientPath, 0755)
 						if err != nil {
-							exitGracefully(fmt.Errorf("could not create data directory %s", oOrderPatientPath))
+							if _, err2 := os.Stat(oOrderPatientPath); os.IsNotExist(err2) {
+								exitGracefully(fmt.Errorf("could not create data directory %s (%s)", oOrderPatientPath, err))
+							}
 						}
 					}
 					piece = piece + 1
@@ -392,26 +434,6 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 				_, err = os.Stat(outputPathFileName)
 				var c int = 0
 				atomic.AddInt32(&counter, 1)
-				if verboseFlag && counter%100 == 0 {
-					numPatients := 0
-					listPatients.Range(func(key, value interface{}) bool {
-						numPatients = numPatients + 1
-						return true
-					})
-					numStudies := 0
-					listStudies.Range(func(key, value interface{}) bool {
-						numStudies = numStudies + 1
-						return true
-					})
-					numSeries := 0
-					listSeries.Range(func(key, value interface{}) bool {
-						numSeries = numSeries + 1
-						return true
-					})
-					fmt.Printf("\033[A\033[2K\033[94;49m%s%d\033[37m [%.0f files / s] P%04d S%04d S%04d\033[39m\033[49m\n", spinner[(spinner_c)%len(spinner)], counter, (float64(counter))/time.Since(startTime).Seconds(), numPatients, numStudies, numSeries)
-					spinner_c = spinner_c + 1
-				}
-
 				for !os.IsNotExist(err) {
 					c = c + 1 // make filename unique by adding a number
 					fname := fmt.Sprintf("%s_%03d%s", strings.TrimSuffix(fname, filepath.Ext(fname)), c, filepath.Ext(fname))
@@ -486,7 +508,10 @@ func sort(source_path string, dest_path string) int32 {
 	startTime = time.Now()
 	err := cwalk.WalkWithSymlinks(source_path, walkFunc)
 	if err != nil {
-		fmt.Printf("Error : %s\n", err.Error())
+		//fmt.Printf("Error: %s\n", err.Error())
+		for i, errors := range err.(cwalk.WalkerErrorList).ErrorList {
+			fmt.Printf("Error [%d]: %s\n", i, errors)
+		}
 	}
 	if verboseFlag {
 		sizeStr := ""
@@ -524,17 +549,19 @@ func IsEmpty(name string) (bool, error) {
 func main() {
 
 	// Server for pprof
-	go func() {
-		fmt.Println(http.ListenAndServe("localhost:6060", nil))
-	}()
+	//go func() {
+	//	fmt.Println(http.ListenAndServe("localhost:6060", nil))
+	//}()
+
+	fmt_local = message.NewPrinter(message.MatchLanguage("en"))
 
 	//rand.Seed(time.Now().UnixNano())
 	// disable logging
 	log.SetFlags(0)
 	log.SetOutput(io.Discard /*ioutil.Discard*/)
 
-	flag.StringVar(&methodFlag, "method", "copy", "Create symbolic links (faster) or really copy files (copy|link)")
-	flag.StringVar(&outputFolderFlag, "folder", "{PatientID}_{PatientName}/{StudyDate}_{StudyTime}_{StudyInstanceUID}/{SeriesNumber}_{SeriesDescription}_{SeriesInstanceUID}/{Modality}_{SOPInstanceUID}.dcm", "Specify the requested output folder structure using the following DICOM tags:\n\t{counter}, {PatientID}, {PatientName}, {StudyDate},\n\t{StudyTime}, {SeriesDescription}, {SeriesNumber},\n\t{Modality}, {StudyInstanceUID}, {SeriesInstanceUID}, {SOPInstanceUID}\n")
+	flag.StringVar(&methodFlag, "method", "copy", "Create symbolic links (faster) or copies files (copy|link)")
+	flag.StringVar(&outputFolderFlag, "folder", "{PatientID}_{PatientName}/{StudyDate}_{StudyTime}_{StudyInstanceUID}/{SeriesNumber}_{SeriesDescription}_{SeriesInstanceUID}/{Modality}_{SOPInstanceUID}.dcm", "Specify the requested output folder structure using the following DICOM tags:\n\t{counter}, {PatientID}, {PatientName}, {StudyDate},\n\t{StudyTime}, {SeriesDescription}, {SeriesNumber}, {StudyDescription},\n\t{Modality}, {StudyInstanceUID}, {SeriesInstanceUID}, {SOPInstanceUID}\n")
 	flag.BoolVar(&verboseFlag, "verbose", false, "Print more verbose output")
 	flag.BoolVar(&versionFlag, "version", false, "Print the version number")
 	flag.Parse()
@@ -594,6 +621,6 @@ func main() {
 		if numFiles == 1 {
 			s = ""
 		}
-		fmt.Printf("✓ sorted %d file%s [%d non-DICOM files ignored]\n", numFiles, s, counterError)
+		fmt_local.Printf("✓ sorted %d file%s [%d non-DICOM files ignored]\n", numFiles, s, counterError)
 	}
 }

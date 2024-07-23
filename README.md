@@ -51,6 +51,26 @@ The default option '-method copy' is slower but generates a physical copy of fil
 
 Warning: Scanning non-DICOM files takes a lot of time. sdcm uses a heuristic based on filenames. It assumes that DICOM files either do not have an extension or have the ".dcm" extension. All other files are ignored. This implies that sdcm will ignore files with an extension like ".dcm.bak".
 
+During processing with '-verbose' the command line will show:
+
+```bash
+⢿ 42,982 [118 files / s] P 12,102 S 12,111 S 12,374 [S 134,118]
+  |       |              |        |        |         |
+  Number of DICOM files  |        |        |         |
+          |              |        |        |         |
+          Overall speed of processing      |         |
+                         |        |        |         |
+                         Number of patients          |
+                                  |        |         |
+                                  Number of studies  |
+                                           |         |
+                                           Number of series
+                                                     |
+                                                     Number of skipped files (non-DICOM)
+```
+
+
+
 #### Output folder structure
 
 The default output folder structure combines patient, study and series level information. You can specify a simplier output format using the "-folder" option.
