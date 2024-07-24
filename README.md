@@ -36,9 +36,10 @@ The following table compares the processing speeds of sdcm and Horos 4.0.1 (on M
 | Program | Task | Timing |
 | --- | --- | --- |
 | Horos v4.01 | process 244,617 DICOM and 1,317 non-DICOM files | 7m50s |
+| [Python/pydicom](https://github.com/HaukeBartsch/sort_dicom_files) | process 244,617 DICOM and 1,317 non-DICOM files | 10m17s | 
 | sdcm v0.0.2 | process 244,617 DICOM and 1,317 non-DICOM files | 4m12s |
 
-In this test Horos was asked to only "link" to the input folder. About 970 images per second can be processed by sdcm. Using "-method copy" approximately 200 files per second are processed on the same machine.
+In this test Horos was asked to only "link" to the input folder. About 970 images per second can be processed by sdcm. Using "-method copy" approximately 200 files per second are processed on the same machine. The python script was started with the '-symlink' flag.
 
 
 ## Details
@@ -51,7 +52,9 @@ cp -Lr <output folder>/input/<patient>/<study>/<series> /somewhere/else/
 
 The default option '-method copy' is slower but generates a physical copy of files in the output folder. If you are are only interested in a single series use '-method link' followed by 'cp -L'. 
 
-Warning: Scanning non-DICOM files takes a lot of time. sdcm uses a heuristic based on filenames. It assumes that DICOM files either do not have an extension or have the ".dcm" extension. All other files are ignored. This implies that sdcm will ignore files with an extension like ".dcm.bak".
+> [!NOTE]
+> Warning: Scanning non-DICOM files takes a lot of time. sdcm uses a heuristic based on filenames. It assumes that DICOM files either do not have an extension or have the ".dcm" extension. All other files are ignored. This implies that sdcm will ignore files with an extension like ".dcm.bak".
+
 
 During processing with '-verbose' the command line will show:
 
@@ -144,4 +147,32 @@ Download the executable. Copy the file to a folder like /usr/local/bin/ that is 
 ```bash
 wget -qO- https://github.com/HaukeBartsch/sdcm/raw/main/build/linux-amd64/sdcm > /usr/local/bin/sdcm
 chmod +x /usr/local/bin/sdcm
+```
+
+### Test the installation
+
+Test the installation by running the following command:
+
+```bash
+sdcm --help
+```
+
+This should print the help message:
+
+```bash
+Usage of sdcm:
+  -debug
+    	Print verbose and add messages for skipped files
+  -folder string
+    	Specify the requested output folder structure using the following DICOM tags:
+    		{counter}, {PatientID}, {PatientName}, {StudyDate},
+    		{StudyTime}, {SeriesDescription}, {SeriesNumber}, {StudyDescription},
+    		{Modality}, {StudyInstanceUID}, {SeriesInstanceUID}, {SOPInstanceUID}
+    	 (default "{PatientID}_{PatientName}/{StudyDate}_{StudyTime}/{SeriesNumber}_{SeriesDescription}/{Modality}_{SOPInstanceUID}.dcm")
+  -method string
+    	Create symbolic links (faster) or copy files [copy|link] (default "copy")
+  -verbose
+    	Print more verbose output
+  -version
+    	Print the version number
 ```
