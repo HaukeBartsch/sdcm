@@ -81,7 +81,7 @@ During processing with '-verbose' the command line will show:
 
 ## Output folder structure
 
-The default output folder structure combines patient, study and series level information. You can specify a simplier output format using the "-folder" option.
+The default output folder structure combines patient, study and series level information. You can specify a simpler output format using the "-folder" option.
 
 Default folders:
 
