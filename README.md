@@ -15,9 +15,9 @@ Here an example processing run with a generated output directory tree with studi
 ```bash
 > sdcm -verbose -method link /Volumes/T7/data/LIDC-IDRI/LIDC-IDRI /tmp/bbb
 Parse /Volumes/T7/data/LIDC-IDRI/LIDC-IDRI...
-⣯ 244600 [988 files / s] P1010 S1308 S1398
+⣯ 244,600 [988 files / s] P1010 S1308 S1398
 done in 4m7.765658167s 
-✓ sorted 244617 files into /tmp/bbb [1317 non-DICOM files ignored]
+✓ sorted 244,617 files into /tmp/bbb [1,317 non-DICOM files ignored]
 
 > tree -L 3 /tmp/bbb
 /tmp/bbb
@@ -31,15 +31,19 @@ done in 4m7.765658167s
 
 ## Timing
 
-The following table compares the processing speeds of sdcm and Horos 4.0.1 (on MacBook Air 13, M2 arm64) for 244,617 DICOM files (LIDC-IDRI dataset from an external SSD):
+The following table compares the processing speeds of sdcm and some other tools (on MacBook Air 13, M2 arm64) for 244,617 DICOM files (LIDC-IDRI dataset from an external SSD):
 
 | Program | Task | Timing |
 | --- | --- | --- |
 | Horos v4.01 | process 244,617 DICOM and 1,317 non-DICOM files | 7m50s |
-| [Python/pydicom](https://github.com/HaukeBartsch/sort_dicom_files) | process 244,617 DICOM and 1,317 non-DICOM files | 10m17s | 
+| [Python/pydicom](https://github.com/HaukeBartsch/sort_dicom_files) | process 244,617 DICOM and 1,317 non-DICOM files | 10m17s |
+| [bash/dcmtk](https://github.com/HaukeBartsch/sort_dicom_files) | process 244,617 DICOM and 1,317 non-DICOM files | >1h |
 | sdcm v0.0.2 | process 244,617 DICOM and 1,317 non-DICOM files | 4m12s |
 
-In this test Horos was asked to only "link" to the input folder. About 970 images per second can be processed by sdcm. Using "-method copy" approximately 200 files per second are processed on the same machine. The python script was started with the '-symlink' flag.
+In this test Horos was asked to only "link" to the input folder. The python script was started with the '-symlink' flag. About 970 images per second can be processed by sdcm. Using "-method copy" approximately 200 files per second are processed on the same machine. 
+
+> [!NOTE]
+> The bash option is by far the worst-case scenario, not because of bash but because all DICOM tags are extracted using repeated calls to an external "dcmdump" executable. This could be somewhat improved by using dcm2json and pulling values using jq (left to the reader).
 
 
 ## Details
