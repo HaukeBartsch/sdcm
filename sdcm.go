@@ -7,7 +7,6 @@ package main
 import (
 	"bytes"
 	_ "embed"
-	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -236,7 +235,7 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 		if strings.ToLower(filepath.Ext(path)) != ".dcm" && !isNum(filepath.Ext(path)[1:]) && len(filepath.Ext(path)) < 5 {
 			atomic.AddInt32(&counterError, 1)
 			if debugFlag {
-				fmt.Printf("ignore file due to file extension: \"%s\"\n", path)
+				fmt.Printf("[%d] ignore file due to file extension: \"%s\"\n\n", counterError, path)
 			}
 			return nil // ignore this file
 		}
@@ -479,10 +478,10 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 			}
 		}
 	} else {
-		if debugFlag {
-			fmt.Printf("ignore file, cannot read as DICOM: \"%s\"\n", path)
-		}
 		atomic.AddInt32(&counterError, 1)
+		if debugFlag {
+			fmt.Printf("[%d] ignore file, cannot read as DICOM: \"%s\"\n\n", counterError, path)
+		}
 	}
 
 	return nil
@@ -506,7 +505,7 @@ func FormatFileSize(s float64, base float64) string {
 	return fmt.Sprintf(f, s, sizes[i])
 }
 
-func sort(source_path string, dest_path string) int32 {
+func sort(source_paths []string, dest_path string) int32 {
 	destination_path := dest_path
 
 	if _, err := os.Stat(destination_path); os.IsNotExist(err) {
@@ -520,15 +519,19 @@ func sort(source_path string, dest_path string) int32 {
 	counterError = 0
 	bytesWritten = 0
 	ProcessDataPath = dest_path
-	InputDataPath = source_path
-	fmt.Printf("\n")
-
 	startTime = time.Now()
-	err := cwalk.WalkWithSymlinks(source_path, walkFunc)
-	if err != nil {
-		//fmt.Printf("Error: %s\n", err.Error())
-		for i, errors := range err.(cwalk.WalkerErrorList).ErrorList {
-			fmt.Printf("Error [%d]: %s\n", i, errors)
+	if verboseFlag {
+		fmt.Printf("\n")
+	}
+	for _, source_path := range source_paths {
+		InputDataPath = source_path
+
+		err := cwalk.WalkWithSymlinks(source_path, walkFunc)
+		if err != nil {
+			//fmt.Printf("Error: %s\n", err.Error())
+			for i, errors := range err.(cwalk.WalkerErrorList).ErrorList {
+				fmt.Printf("Error [%d]: %s\n", i, errors)
+			}
 		}
 	}
 	if verboseFlag {
@@ -616,15 +619,20 @@ func main() {
 		fmt.Println("Usage: <input path> <output path>")
 		os.Exit(-1)
 	}
-	input, err := filepath.Abs(flag.Args()[0])
-	if err != nil {
-		exitGracefully(errors.New("input path could not be found"))
+	var input []string
+	pos_args := flag.Args()
+	for i, _ := range pos_args[:len(pos_args)-1] {
+		in, err := filepath.Abs(pos_args[i])
+		if err != nil {
+			exitGracefully(fmt.Errorf("input path \"%s\" could not be found", pos_args[i]))
+		}
+		input = append(input, in)
 	}
 	// we will error out of the output path already exists and is not empty
-	if _, err := os.Stat(flag.Args()[1]); err == nil {
-		isEmpty, _ := IsEmpty(flag.Args()[1])
+	if _, err := os.Stat(pos_args[len(pos_args)-1]); err == nil {
+		isEmpty, _ := IsEmpty(pos_args[len(pos_args)-1])
 		if !isEmpty {
-			exitGracefully(fmt.Errorf("output path %s already exists, cowardly refusing to continue. Clear its content or specify a new directory", flag.Args()[1]))
+			exitGracefully(fmt.Errorf("output path %s already exists, cowardly refusing to continue. Clear its content or specify a new directory", pos_args[len(pos_args)-1]))
 		}
 	}
 
@@ -636,9 +644,9 @@ func main() {
 	}
 
 	if verboseFlag {
-		fmt.Printf("Parse %s...\n", input)
+		fmt.Printf("Parse %v...\n", input)
 	}
-	numFiles := sort(input, flag.Args()[1])
+	numFiles := sort(input, pos_args[len(pos_args)-1])
 	if verboseFlag {
 		s := "s"
 		if numFiles == 1 {
