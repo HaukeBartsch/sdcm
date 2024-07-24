@@ -41,7 +41,7 @@ The following table compares the processing speeds of sdcm and Horos 4.0.1 (on M
 In this test Horos was asked to only "link" to the input folder. About 970 images per second can be processed by sdcm. Using "-method copy" approximately 200 files per second are processed on the same machine.
 
 
-### Details
+## Details
 
 Writing to disk is usually the slowest part of sorting DICOM files. To speed this up the '-method link' option will not copy the content of the input files. Instead a symbolic link file (smaller) that points to the each input file is created. In order to obtain a copy of the files you need to dereference each symbolic link. The 'cp' program has an option '-L' that follows symbolic links with:
 
@@ -72,8 +72,7 @@ During processing with '-verbose' the command line will show:
 ```
 
 
-
-#### Output folder structure
+## Output folder structure
 
 The default output folder structure combines patient, study and series level information. You can specify a simplier output format using the "-folder" option.
 

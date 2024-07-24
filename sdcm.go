@@ -573,7 +573,7 @@ func main() {
 	log.SetFlags(0)
 	log.SetOutput(io.Discard /*ioutil.Discard*/)
 
-	flag.StringVar(&methodFlag, "method", "copy", "Create symbolic links (faster) or copies files (copy|link)")
+	flag.StringVar(&methodFlag, "method", "copy", "Create symbolic links (faster) or copy files [copy|link]")
 	flag.StringVar(&outputFolderFlag, "folder", "{PatientID}_{PatientName}/{StudyDate}_{StudyTime}_{StudyInstanceUID}/{SeriesNumber}_{SeriesDescription}_{SeriesInstanceUID}/{Modality}_{SOPInstanceUID}.dcm", "Specify the requested output folder structure using the following DICOM tags:\n\t{counter}, {PatientID}, {PatientName}, {StudyDate},\n\t{StudyTime}, {SeriesDescription}, {SeriesNumber}, {StudyDescription},\n\t{Modality}, {StudyInstanceUID}, {SeriesInstanceUID}, {SOPInstanceUID}\n")
 	flag.BoolVar(&verboseFlag, "verbose", false, "Print more verbose output")
 	flag.BoolVar(&versionFlag, "version", false, "Print the version number")
