@@ -1,6 +1,11 @@
-all:	build/linux-amd64/sdcm	build/macos-amd64/sdcm	build/windows-amd64/sdcm.exe	build/macos-arm64/sdcm
+binaries=build/linux-amd64/sdcm	build/macos-amd64/sdcm	build/windows-amd64/sdcm.exe	build/macos-arm64/sdcm
+
+all:	$(binaries)
 	@echo "Done"
 .PHONY : all
+
+clean:
+	rm -f $(binaries)
 
 # override with 'make BUILD=Release'
 BUILD := Debug
