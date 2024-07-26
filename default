@@ -1,0 +1,8 @@
+# Example format path for sdcm
+# Text after a '#' character is ignored. Spaces are also ignored.
+# Uses empty strings if tags have no value or do not exist.
+
+{PatientID}_{PatientName}/			
+	{StudyDate}_{StudyTime}/
+		{SeriesNumber}_{SeriesDescription}/
+			{Modality}_{SOPInstanceUID}.dcm

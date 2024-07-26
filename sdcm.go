@@ -7,6 +7,7 @@ package main
 import (
 	"bytes"
 	_ "embed"
+	"errors"
 	"fmt"
 	"io"
 	"log"
@@ -26,6 +27,9 @@ import (
 	"github.com/iafan/cwalk"
 
 	"github.com/suyashkumar/dicom"
+	//"github.com/haukebartsch/dicom"
+	//"github.com/haukebartsch/dicom/pkg/tag"
+
 	"github.com/suyashkumar/dicom/pkg/tag"
 
 	"golang.org/x/text/message"
@@ -39,7 +43,7 @@ const version string = "0.0.2"
 // -ldflags "-X main.compileDate=`date -u +.%Y%m%d.%H%M%S"`"
 var compileDate string = ".unknown"
 
-var own_name string = "sdcm"
+//var own_name string = "sdcm"
 
 var counter int32
 var counterError int32
@@ -80,28 +84,10 @@ func check(e error) {
 	}
 }
 
-type Description struct {
-	NameFromSelect           string
-	SeriesInstanceUID        string
-	SeriesDescription        string
-	StudyInstanceUID         string
-	NumFiles                 int32
-	Modality                 string
-	PatientID                string
-	PatientName              string
-	SequenceName             string
-	StudyDate                string
-	StudyTime                string
-	SeriesTime               string
-	SeriesNumber             string
-	ReferringPhysician       string // for the research PACS this stores the event name
-	InputViewDICOMSeriesPath string
-}
-
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9 ]+`)
 
 func clearString(str string) string {
-	return nonAlphanumericRegex.ReplaceAllString(str, "")
+	return nonAlphanumericRegex.ReplaceAllString(strings.Trim(str, " "), "-")
 }
 
 func copyFileContents(src, dst string) (bytesWritten int64, err error) {
@@ -274,10 +260,12 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 			tag.SeriesNumber:      "",
 			tag.Modality:          "",
 		}
-		populate(&keyMap, in_file)
-		fmt.Printf("populate time: %v %s\n", time.Since(sT), path) */
+			populate(&keyMap, in_file)
+			fmt.Printf("populate time: %v %s\n", time.Since(sT), path) */
 
 	//sT := time.Now()
+	//tag_list := []tag.Tag{tag.StudyInstanceUID, tag.SeriesInstanceUID, tag.PatientID}
+	//dataset, err := dicom.ParseFile(in_file, nil, dicom.SkipPixelData(), dicom.ParseTheseTags(tag_list)) // See also: dicom.Parse which has a generic io.Reader API.
 	dataset, err := dicom.ParseFile(in_file, nil, dicom.SkipPixelData()) // See also: dicom.Parse which has a generic io.Reader API.
 	//fmt.Printf("ParseFile time: %v %s\n", time.Since(sT), path)
 	if err == nil {
@@ -567,6 +555,34 @@ func IsEmpty(name string) (bool, error) {
 	return false, err // Either not empty or error, suits both cases
 }
 
+func translateStringOrFile(outputFolderFlag string) string {
+	outputFolderFlag = strings.Trim(outputFolderFlag, " ") // remove any leading or trailing spaces
+	if outputFolderFlag[0] == '@' {                        // should we read this as a filename?
+		outputFolderFlag = outputFolderFlag[1:]
+		if _, err := os.Stat(outputFolderFlag); errors.Is(err, os.ErrNotExist) {
+			exitGracefully(fmt.Errorf("the path to %s could not be found", outputFolderFlag))
+		}
+		b, err := os.ReadFile(outputFolderFlag) // just pass the file name
+		if err != nil {
+			exitGracefully(fmt.Errorf("file %s could not be read (%s)", outputFolderFlag, err))
+		}
+		outputFolderFlag = string(b)
+		// remove lines that start with '#'
+		s_list := strings.Split(strings.ReplaceAll(outputFolderFlag, "\r\n", "\n"), "\n")
+		var new_list []string
+		for _, ss := range s_list {
+			ar := strings.Split(ss, "#")
+			new_list = append(new_list, ar[0]) // remember the part before the comment character
+		}
+		outputFolderFlag = strings.Join(new_list, "")
+	}
+	re := regexp.MustCompile(`\r?\n`) // remove new lines
+	outputFolderFlag = re.ReplaceAllString(outputFolderFlag, "")
+	outputFolderFlag = strings.Replace(outputFolderFlag, "\t", "", -1) // do not allow tabs
+	outputFolderFlag = strings.Replace(outputFolderFlag, " ", "", -1)  // do not allow spaces
+	return outputFolderFlag
+}
+
 func main() {
 
 	// Server for pprof
@@ -582,11 +598,22 @@ func main() {
 	log.SetOutput(io.Discard /*ioutil.Discard*/)
 
 	flag.StringVar(&methodFlag, "method", "copy", "Create symbolic links (faster) or copy files [copy|link]")
-	flag.StringVar(&outputFolderFlag, "folder", "{PatientID}_{PatientName}/{StudyDate}_{StudyTime}/{SeriesNumber}_{SeriesDescription}/{Modality}_{SOPInstanceUID}.dcm", "Specify the requested output folder structure using the following DICOM tags:\n\t{counter}, {PatientID}, {PatientName}, {StudyDate},\n\t{StudyTime}, {SeriesDescription}, {SeriesNumber}, {StudyDescription},\n\t{Modality}, {StudyInstanceUID}, {SeriesInstanceUID}, {SOPInstanceUID}\n")
+	flag.StringVar(&outputFolderFlag, "folder", "{PatientID}_{PatientName}/{StudyDate}_{StudyTime}/{SeriesNumber}_{SeriesDescription}/{Modality}_{SOPInstanceUID}.dcm",
+		"Specify the requested output folder path as a string (or file starting with '@') using the following DICOM tags:\n\t{counter}, {PatientID}, {PatientName}, {StudyDate},\n\t{StudyTime}, {SeriesDescription}, {SeriesNumber}, {StudyDescription},\n\t{Modality}, {StudyInstanceUID}, {SeriesInstanceUID}, {SOPInstanceUID}.\nThe argument will be interpreted as a filename if it starts with '@'.\n")
 	flag.BoolVar(&verboseFlag, "verbose", false, "Print more verbose output")
 	flag.BoolVar(&debugFlag, "debug", false, "Print verbose and add messages for skipped files")
 	flag.BoolVar(&versionFlag, "version", false, "Print the version number")
 	flag.Parse()
+
+	// allow output folder path to be specified by an environment variable
+	if outputFolderFlag == "" {
+		env_folder_path := os.Getenv("SDCM_FOLDER_PATH")
+		if len(env_folder_path) > 0 {
+			outputFolderFlag = env_folder_path
+		}
+	}
+	// allow the outputFolderFlag to point to a file instead
+	outputFolderFlag = translateStringOrFile(outputFolderFlag)
 
 	if debugFlag {
 		verboseFlag = true
@@ -613,15 +640,15 @@ func main() {
 		os.Exit(0)
 	}
 
-	own_name = os.Args[0]
+	//own_name = os.Args[0]
 
 	if len(os.Args) < 3 {
-		fmt.Println("Usage: <input path> <output path>")
+		fmt.Println("Usage: <input path 1> ... <output path>")
 		os.Exit(-1)
 	}
 	var input []string
 	pos_args := flag.Args()
-	for i, _ := range pos_args[:len(pos_args)-1] {
+	for i := range pos_args[:len(pos_args)-1] {
 		in, err := filepath.Abs(pos_args[i])
 		if err != nil {
 			exitGracefully(fmt.Errorf("input path \"%s\" could not be found", pos_args[i]))
@@ -633,13 +660,6 @@ func main() {
 		isEmpty, _ := IsEmpty(pos_args[len(pos_args)-1])
 		if !isEmpty {
 			exitGracefully(fmt.Errorf("output path %s already exists, cowardly refusing to continue. Clear its content or specify a new directory", pos_args[len(pos_args)-1]))
-		}
-	}
-
-	if outputFolderFlag == "" {
-		env_folder_path := os.Getenv("SDCM_FOLDER_PATH")
-		if len(env_folder_path) > 0 {
-			outputFolderFlag = env_folder_path
 		}
 	}
 

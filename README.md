@@ -118,7 +118,7 @@ SDCM_FOLDER_PATH="{PatientID}/{StudyDate}/{SeriesNumber}_{SeriesDescription}/{Mo
 
 ### Install on MacOS
 
-Download the sdcm executable that matches your platform. Copy the file (statically linked executable) to a folder in your path (e.g. /usr/local/bin).
+Download the sdcm executable that matches your platform. Copy the file (statically linked executable) to a folder in your path (e.g. /usr/local/bin). The instructions below work if you have access to 'wget' (install on Mac with 'brew', use 'sudo' if you do not have permissions to write to /usr/local/bin/).
 
 
 Intel-based mac (amd64)
