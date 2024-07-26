@@ -2,7 +2,7 @@
 # Text after a '#' character is ignored. Spaces are also ignored.
 # Uses empty strings if tags have no value or do not exist.
 # Use this template with:
-#     sdcm -format @default <input folder> <output folder>
+#     sdcm -format @default_format <input folder> <output folder>
 
 {PatientID}_{PatientName}/			
 	{StudyDate}_{StudyTime}/
