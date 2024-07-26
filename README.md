@@ -111,6 +111,22 @@ The folder option can also be set as an environment variable SDCM_FOLDER_PATH.
 SDCM_FOLDER_PATH="{PatientID}/{StudyDate}/{SeriesNumber}_{SeriesDescription}/{Modality}_{counter}.dcm" sdcm -verbose -method link <input folder> <output folder>
 ```
 
+You can store a folder path in an external text file. Such a file can be used on the command line if the value of '-folder' starts with a '@'-character (e.g. '-folder @my_folder_options').
+
+```bash
+# Example format path for sdcm
+# Text after a '#' character is ignored. Spaces are also ignored.
+# Uses empty strings if tags have no value or do not exist.
+# Use this template with:
+#     sdcm -format @default_format <input folder> <output folder>
+
+{PatientID}_{PatientName}/			
+	{StudyDate}_{StudyTime}/
+		{SeriesNumber}_{SeriesDescription}/
+			{Modality}_{SOPInstanceUID}.dcm
+```
+
+
 ### Install on MacOS
 
 Download the sdcm executable that matches your platform. Copy the file (statically linked executable) to a folder in your path (e.g. /usr/local/bin). The instructions below work if you have access to 'wget' (install on Mac with 'brew', use 'sudo' if you do not have permissions to write to /usr/local/bin/).
