@@ -66,15 +66,10 @@ During processing with '-verbose' the command line will show:
 ⢿ 42,982 [118 files / s] P 12,102 S 12,111 S 12,374 [S 134,118]
   |       |              |        |        |         |
   Number of DICOM files  |        |        |         |
-          |              |        |        |         |
           Overall speed of processing      |         |
-                         |        |        |         |
                          Number of patients          |
-                                  |        |         |
                                   Number of studies  |
-                                           |         |
                                            Number of series
-                                                     |
                                                      Number of skipped files (non-DICOM)
 ```
 
@@ -124,14 +119,14 @@ Download the sdcm executable that matches your platform. Copy the file (statical
 Intel-based mac (amd64)
 
 ```bash
-wget -qO- https://github.com/HaukeBartsch/sdcm/raw/main/build/linux-amd64/sdcm > /usr/local/bin/sdcm
+sudo wget -qO- https://github.com/HaukeBartsch/sdcm/raw/main/build/linux-amd64/sdcm > /usr/local/bin/sdcm
 chmod +x /usr/local/bin/sdcm
 ```
 
 Silicon-based mac (arm64)
 
 ```bash
-wget -qO- https://github.com/HaukeBartsch/sdcm/raw/main/build/macos-arm64/sdcm > /usr/local/bin/sdcm
+sudo wget -qO- https://github.com/HaukeBartsch/sdcm/raw/main/build/macos-arm64/sdcm > /usr/local/bin/sdcm
 chmod +x /usr/local/bin/sdcm
 ```
 
@@ -163,15 +158,16 @@ sdcm --help
 
 This should print the help message:
 
-```bash
+```
 Usage of sdcm:
   -debug
     	Print verbose and add messages for skipped files
   -folder string
-    	Specify the requested output folder structure using the following DICOM tags:
+    	Specify the requested output folder path as a string (or file starting with '@') using the following DICOM tags:
     		{counter}, {PatientID}, {PatientName}, {StudyDate},
     		{StudyTime}, {SeriesDescription}, {SeriesNumber}, {StudyDescription},
-    		{Modality}, {StudyInstanceUID}, {SeriesInstanceUID}, {SOPInstanceUID}
+    		{Modality}, {StudyInstanceUID}, {SeriesInstanceUID}, {SOPInstanceUID}.
+    	The argument will be interpreted as a filename if it starts with '@'.
     	 (default "{PatientID}_{PatientName}/{StudyDate}_{StudyTime}/{SeriesNumber}_{SeriesDescription}/{Modality}_{SOPInstanceUID}.dcm")
   -method string
     	Create symbolic links (faster) or copy files [copy|link] (default "copy")
