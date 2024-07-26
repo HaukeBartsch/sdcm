@@ -167,7 +167,7 @@ Usage of sdcm:
     		{counter}, {PatientID}, {PatientName}, {StudyDate},
     		{StudyTime}, {SeriesDescription}, {SeriesNumber}, {StudyDescription},
     		{Modality}, {StudyInstanceUID}, {SeriesInstanceUID}, {SOPInstanceUID}.
-    	The argument will be interpreted as a filename if it starts with '@'.
+    	The argument will be interpreted as a filename if it is preceeded with a '@'-character.
     	 (default "{PatientID}_{PatientName}/{StudyDate}_{StudyTime}/{SeriesNumber}_{SeriesDescription}/{Modality}_{SOPInstanceUID}.dcm")
   -method string
     	Create symbolic links (faster) or copy files [copy|link] (default "copy")
