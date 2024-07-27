@@ -40,24 +40,24 @@ The following table compares the processing speeds of sdcm and some other tools 
 | [bash/dcmtk](https://github.com/HaukeBartsch/sort_dicom_files) | process 244,617 DICOM and 1,317 non-DICOM files | >1h |
 | sdcm v0.0.2 | process 244,617 DICOM and 1,317 non-DICOM files | 4m12s |
 
-In this test Horos was asked to only "link" to the input folder. The python script was started with the '-symlink' flag. About 970 images per second can be processed by sdcm. Using "-method copy" approximately 200 files per second are processed on the same machine. 
+In this test Horos was asked to "link" to the input folder. The python script was started with the '-symlink' flag. About 970 images per second can be processed by sdcm. Using "-method copy" approximately 200 files per second are processed on the same machine. 
 
 > [!NOTE]
-> The bash option is by far the worst-case scenario, not because of bash but because all DICOM tags are extracted using repeated calls to an external "dcmdump" executable. This could be somewhat improved by using dcm2json and pulling values using jq (left to the reader).
+> The bash option is by far the worst-case scenario, not because of bash but because DICOM tags are extracted using repeated calls with "dcmdump". This could be improved by using dcm2json and pulling values using jq (left to the reader).
 
 
 ## Details
 
-Writing to disk is usually the slowest part of sorting DICOM files. To speed this up the '-method link' option will not copy the content of the input files. Instead a symbolic link file (smaller) that points to the each input file is created. In order to obtain a copy of the files you need to dereference each symbolic link. The 'cp' program has an option '-L' that follows symbolic links with:
+Writing to disk is usually the slowest part of sorting DICOM files. To speed this up the '-method link' option will not copy the content of the input files. Instead symbolic link files (smaller) that points to each input file are created. In order to obtain a copy of the files you need to dereference each symbolic link. The 'cp' program has an option '-L' that follows symbolic links with:
 
 ```bash
 cp -Lr <output folder>/input/<patient>/<study>/<series> /somewhere/else/
 ```
 
-The default option '-method copy' is slower but generates a physical copy of files in the output folder. If you are are only interested in a single series use '-method link' followed by 'cp -L'. 
+The default (option '-method copy') is slower but generates a physical copy of files in the output folder. If you are are only interested in a single series use '-method link' followed by 'cp -L'. 
 
 > [!NOTE]
-> Warning: Scanning non-DICOM files takes a lot of time. sdcm uses a heuristic based on filenames. It assumes that DICOM files either do not have an extension or have the ".dcm" extension. All other files are ignored. This implies that sdcm will ignore files with an extension like ".dcm.bak".
+> Warning: Scanning large non-DICOM files takes a lot of time until it fails. To reduce that scantime sdcm uses a heuristic based on filenames. It assumes that DICOM files either do not have an extension or have the ".dcm" extension. All other files are ignored. This implies that sdcm will ignore files with an extension like ".dcm.bak".
 
 
 During processing with '-verbose' the command line will show:
@@ -87,7 +87,7 @@ sdcm -verbose \
      <input folder> <output folder>
 ```
 
-Simple folder:
+Simple folders:
 
 ```bash
 sdcm -verbose \
@@ -96,7 +96,7 @@ sdcm -verbose \
      <input folder> <output folder>
 ```
 
-BIDS like folder:
+BIDS-like folders:
 
 ```bash
 sdcm -verbose \
@@ -108,13 +108,14 @@ sdcm -verbose \
 The folder option can also be set as an environment variable SDCM_FOLDER_PATH.
 
 ```bash
-SDCM_FOLDER_PATH="{PatientID}/{StudyDate}/{SeriesNumber}_{SeriesDescription}/{Modality}_{counter}.dcm" sdcm -verbose -method link <input folder> <output folder>
+SDCM_FOLDER_PATH="{PatientID}/{StudyDate}/{SeriesNumber}_{SeriesDescription}/{Modality}_{counter}.dcm" 
+sdcm -verbose -method link <input folder> <output folder>
 ```
 
-You can store a folder path in an external text file. Such a file can be used on the command line if the value of '-folder' starts with a '@'-character (e.g. '-folder @my_folder_options').
+You can store a folder path in an external text file. Such a file can be used on the command line if the value of '-folder' starts with a '@'-character (e.g. '-folder @my_folder_options_file.txt').
 
 ```bash
-# Example format path for sdcm
+# Example format path file for sdcm
 # Text after a '#' character is ignored. Spaces are also ignored.
 # Uses empty strings if tags have no value or do not exist.
 # Use this template with:
@@ -129,8 +130,7 @@ You can store a folder path in an external text file. Such a file can be used on
 
 ### Install on MacOS
 
-Download the sdcm executable that matches your platform. Copy the file (statically linked executable) to a folder in your path (e.g. /usr/local/bin). The instructions below work if you have access to 'wget' (install on Mac with 'brew', use 'sudo' if you do not have permissions to write to /usr/local/bin/).
-
+Download the sdcm executable that matches your platform. Copy the file (statically linked executable) to a folder in your path (e.g. /usr/local/bin). The instructions below work if you have access to 'wget' (install on MacOS with 'brew', use 'sudo' if you do not have permissions to write to /usr/local/bin/).
 
 Intel-based mac (amd64)
 
