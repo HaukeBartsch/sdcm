@@ -65,6 +65,7 @@ var (
 	versionFlag      bool
 	outputFolderFlag string
 	debugFlag        bool
+	num_workers      int
 )
 
 func UpdateCounter(counters *sync.Map, key string) {
@@ -514,6 +515,8 @@ func sort(source_paths []string, dest_path string) int32 {
 	for _, source_path := range source_paths {
 		InputDataPath = source_path
 
+		cwalk.NumWorkers = num_workers
+		cwalk.BufferSize = cwalk.NumWorkers
 		err := cwalk.WalkWithSymlinks(source_path, walkFunc)
 		if err != nil {
 			//fmt.Printf("Error: %s\n", err.Error())
@@ -597,6 +600,7 @@ func main() {
 	log.SetFlags(0)
 	log.SetOutput(io.Discard /*ioutil.Discard*/)
 
+	flag.IntVar(&num_workers, "cpus", int(runtime.GOMAXPROCS(0)), "Specify the number of worker threads used for processing")
 	flag.StringVar(&methodFlag, "method", "copy", "Create symbolic links (faster) or copy files [copy|link]")
 	flag.StringVar(&outputFolderFlag, "folder", "{PatientID}_{PatientName}/{StudyDate}_{StudyTime}/{SeriesNumber}_{SeriesDescription}/{Modality}_{SOPInstanceUID}.dcm",
 		"Specify the requested output folder path as a string (or file starting with '@') using the following DICOM tags:\n\t{counter}, {PatientID}, {PatientName}, {StudyDate},\n\t{StudyTime}, {SeriesDescription}, {SeriesNumber}, {StudyDescription},\n\t{Modality}, {StudyInstanceUID}, {SeriesInstanceUID}, {SOPInstanceUID}.\nThe argument will be interpreted as a filename if it is preceeded with a '@'-character.\n")
@@ -661,6 +665,11 @@ func main() {
 		if !isEmpty {
 			exitGracefully(fmt.Errorf("output path %s already exists, cowardly refusing to continue. Clear its content or specify a new directory", pos_args[len(pos_args)-1]))
 		}
+	}
+
+	// check num_workers
+	if num_workers < 1 {
+		num_workers = 1
 	}
 
 	if verboseFlag {

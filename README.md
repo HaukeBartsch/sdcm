@@ -176,6 +176,8 @@ This should print the help message:
 
 ```
 Usage of sdcm:
+  -cpus int
+    	Specify the number of worker threads used for processing (default 8)
   -debug
     	Print verbose and add messages for skipped files
   -folder string
