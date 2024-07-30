@@ -54,7 +54,7 @@ Writing to disk is usually the slowest part of sorting DICOM files. To speed thi
 cp -Lr <output folder>/input/<patient>/<study>/<series> /somewhere/else/
 ```
 
-The default (option '-method copy') is slower but generates a physical copy of files in the output folder. If you are are only interested in a single series use '-method link' followed by 'cp -L'. 
+The default (option '-method copy') is slower but generates a physical copy of files in the output folder. If you are only interested in a single series use '-method link' followed by 'cp -L'. 
 
 > [!NOTE]
 > Warning: Scanning large non-DICOM files takes a lot of time until it fails. To reduce that scantime sdcm uses a heuristic based on filenames. It assumes that DICOM files either do not have an extension or have the ".dcm" extension. All other files are ignored. This implies that sdcm will ignore files with an extension like ".dcm.bak".
@@ -121,7 +121,7 @@ You can store a folder path in an external text file. Such a file can be used on
 # Use this template with:
 #     sdcm -format @default_format <input folder> <output folder>
 
-{PatientID}_{PatientName}/			
+{PatientID}_{PatientName}/
 	{StudyDate}_{StudyTime}/
 		{SeriesNumber}_{SeriesDescription}/
 			{Modality}_{SOPInstanceUID}.dcm
