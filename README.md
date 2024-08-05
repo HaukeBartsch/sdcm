@@ -181,10 +181,7 @@ Usage of sdcm:
   -debug
     	Print verbose and add messages for skipped files
   -folder string
-    	Specify the requested output folder path as a string (or file starting with '@') using the following DICOM tags:
-    		{counter}, {PatientID}, {PatientName}, {StudyDate},
-    		{StudyTime}, {SeriesDescription}, {SeriesNumber}, {StudyDescription},
-    		{Modality}, {StudyInstanceUID}, {SeriesInstanceUID}, {SOPInstanceUID}.
+    	Specify the requested output folder path as a string (or file starting with '@') using DICOM tags and {counter} for a running integer.
     	The argument will be interpreted as a filename if it is preceeded with a '@'-character.
     	 (default "{PatientID}_{PatientName}/{StudyDate}_{StudyTime}/{SeriesNumber}_{SeriesDescription}/{Modality}_{SOPInstanceUID}.dcm")
   -method string
