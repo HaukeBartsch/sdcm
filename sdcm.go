@@ -34,6 +34,8 @@ import (
 
 	"golang.org/x/text/message"
 
+	"github.com/djherbis/times"
+
 	_ "net/http/pprof"
 )
 
@@ -57,6 +59,7 @@ var listPatients sync.Map
 var listStudies sync.Map
 var listSeries sync.Map
 var dicomTags map[tag.Tag]string
+var preserve map[string]bool
 
 var fmt_local *message.Printer
 
@@ -67,6 +70,7 @@ var (
 	outputFolderFlag string
 	debugFlag        bool
 	num_workers      int
+	preserveFlag     string
 )
 
 func UpdateCounter(counters *sync.Map, key string) {
@@ -424,6 +428,16 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 		err = nil
 		if methodFlag == "copy" {
 			bw, err = copyFileContents(in_file, outputPathFileName)
+			// if we really copy the file we can also check for preserve
+			_, ok := preserve["timestamp"]
+			if ok {
+				t, err := times.Stat(in_file)
+				if err != nil {
+					fmt.Printf("errror, could not stat the output file")
+				} else {
+					os.Chtimes(outputPathFileName, t.AccessTime(), t.ModTime())
+				}
+			}
 		} else if methodFlag == "link" {
 			if err = os.Symlink(in_file, outputPathFileName); err != nil {
 				fmt.Printf("Warning: could not create symlink %s for %s, %s\n", in_file, outputPathFileName, err)
@@ -579,6 +593,7 @@ func main() {
 	flag.BoolVar(&verboseFlag, "verbose", false, "Print more verbose output")
 	flag.BoolVar(&debugFlag, "debug", false, "Print verbose and add messages for skipped files")
 	flag.BoolVar(&versionFlag, "version", false, "Print the version number")
+	flag.StringVar(&preserveFlag, "preserve", "", "Preserve the timestamp if called with '-preserve timestamp'")
 	flag.Parse()
 
 	// allow output folder path to be specified by an environment variable
@@ -638,6 +653,24 @@ func main() {
 			fmt.Println()
 		}
 		os.Exit(0)
+	}
+
+	// check preserveFlag
+	preserve = make(map[string]bool, 0)
+	if preserveFlag != "" {
+		if methodFlag != "copy" {
+			fmt.Println("warning: preserve is only supported for method 'copy'")
+		}
+		// allowed modes are timestamp
+		pieces := strings.Split(preserveFlag, ",")
+		for a := range pieces {
+			//fmt.Printf("preserve request %s\n", pieces[a])
+			if pieces[a] == "timestamp" {
+				preserve[pieces[a]] = true
+			} else {
+				exitGracefully(fmt.Errorf("unknown preserve \"%s\"", pieces[a]))
+			}
+		}
 	}
 
 	//own_name = os.Args[0]

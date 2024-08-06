@@ -10,4 +10,8 @@ require (
 	golang.org/x/text v0.16.0
 )
 
-require github.com/google/go-cmp v0.6.0 // indirect
+require (
+	github.com/djherbis/times v1.6.0 // indirect
+	github.com/google/go-cmp v0.6.0 // indirect
+	golang.org/x/sys v0.0.0-20220615213510-4f61da869c0c // indirect
+)
