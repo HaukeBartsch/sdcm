@@ -589,11 +589,11 @@ func main() {
 	flag.IntVar(&num_workers, "cpus", int(runtime.GOMAXPROCS(0)), "Specify the number of worker threads used for processing")
 	flag.StringVar(&methodFlag, "method", "copy", "Create symbolic links (faster) or copy files [copy|link]")
 	flag.StringVar(&outputFolderFlag, "folder", "{PatientID}_{PatientName}/{StudyDate}_{StudyTime}/{SeriesNumber}_{SeriesDescription}/{Modality}_{SOPInstanceUID}.dcm",
-		"Specify the requested output folder path as a string (or file starting with '@') using DICOM tags and {counter} for a running integer.\nThe argument will be interpreted as a filename if it is preceeded with a '@'-character.\n")
+		"Specify the requested output folder path. Additionally to named DICOM tags a numeric '{counter}' variable is provided.\nThe argument will be interpreted as a filename if it is preceeded with an '@'-character.\n")
 	flag.BoolVar(&verboseFlag, "verbose", false, "Print more verbose output")
 	flag.BoolVar(&debugFlag, "debug", false, "Print verbose and add messages for skipped files")
 	flag.BoolVar(&versionFlag, "version", false, "Print the version number")
-	flag.StringVar(&preserveFlag, "preserve", "", "Preserve the timestamp if called with '-preserve timestamp'")
+	flag.StringVar(&preserveFlag, "preserve", "", "Preserves the timestamp if called with '-preserve timestamp'. This option only works for method 'copy'")
 	flag.Parse()
 
 	// allow output folder path to be specified by an environment variable

@@ -181,11 +181,13 @@ Usage of sdcm:
   -debug
     	Print verbose and add messages for skipped files
   -folder string
-    	Specify the requested output folder path as a string (or file starting with '@') using DICOM tags and {counter} for a running integer.
-    	The argument will be interpreted as a filename if it is preceeded with a '@'-character.
+    	Specify the requested output folder path. Additionally to named DICOM tags a numeric '{counter}' variable is provided.
+    	The argument will be interpreted as a filename if it is preceeded with an '@'-character.
     	 (default "{PatientID}_{PatientName}/{StudyDate}_{StudyTime}/{SeriesNumber}_{SeriesDescription}/{Modality}_{SOPInstanceUID}.dcm")
   -method string
     	Create symbolic links (faster) or copy files [copy|link] (default "copy")
+  -preserve string
+    	Preserves the timestamp if called with '-preserve timestamp'. This option only works for method 'copy'
   -verbose
     	Print more verbose output
   -version
