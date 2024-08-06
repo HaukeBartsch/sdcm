@@ -275,11 +275,25 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 	dataset, err := dicom.ParseFile(in_file, nil, dicom.SkipPixelData()) // See also: dicom.Parse which has a generic io.Reader API.
 	//fmt.Printf("ParseFile time: %v %s\n", time.Since(sT), path)
 	if err == nil {
+		// in some special cases we want to skip this DICOM, e.g. DICOMDIR
+		val, err := dataset.FindElementByTag(tag.MediaStorageSOPClassUID)
+		if err == nil {
+			var vs string = dicom.MustGetStrings(val.Value)[0]
+			if vs == "1.2.840.10008.1.3.10" {
+				// skip MediaStorageDirectoryStorage
+				atomic.AddInt32(&counterError, 1)
+				if debugFlag {
+					fmt.Printf("[%d] ignore DICOMDIR file: \"%s\"\n\n", counterError, path)
+				}
+				return nil
+			}
+		}
+
 		// go through all tags we need and pull those, use a map of tag.Tag as key and string as value
 		// use together with dicomTags (tag.Tag as key and "{bla}" as value).
 		dicomVals := make(map[tag.Tag]string, 0)
 		for key := range dicomTags {
-			val, err := dataset.FindElementByTag(key)
+			val, err = dataset.FindElementByTag(key)
 			if err == nil {
 				var vs string = dicom.MustGetStrings(val.Value)[0]
 				dicomVals[key] = vs
