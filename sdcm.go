@@ -245,6 +245,10 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 		if err != nil {
 			exitGracefully(fmt.Errorf("could not create output data directory %s", oOrderPath))
 		}
+		//} else if errors.Is(err, fs.ErrPermission) {
+		//	exitGracefully(fmt.Errorf("could not create output data directory %s, %s", oOrderPath, err))
+	} else if err != nil {
+		exitGracefully(fmt.Errorf("could not create output data directory %s, %s", oOrderPath, err))
 	}
 	in_file := filepath.Join(InputDataPath, path)
 
