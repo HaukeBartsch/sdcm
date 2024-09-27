@@ -16,7 +16,7 @@ Here an example processing run with a generated output directory tree with studi
 > sdcm -verbose -method link /Volumes/T7/data/LIDC-IDRI/LIDC-IDRI /tmp/bbb
 Parse /Volumes/T7/data/LIDC-IDRI/LIDC-IDRI...
 ⣯ 244,600 [988 files / s] P1010 S1308 S1398
-done in 4m7.765658167s 
+done in 4m7.765658167s
 ✓ sorted 244,617 files into /tmp/bbb [1,317 non-DICOM files ignored]
 
 > tree -L 3 /tmp/bbb
@@ -40,7 +40,7 @@ The following table compares the processing speeds of sdcm and some other tools 
 | [bash/dcmtk](https://github.com/HaukeBartsch/sort_dicom_files) | process 244,617 DICOM and 1,317 non-DICOM files | >1h |
 | sdcm v0.0.2 | process 244,617 DICOM and 1,317 non-DICOM files | 4m12s |
 
-In this test Horos was asked to "link" to the input folder. The python script was started with the '-symlink' flag. About 970 images per second can be processed by sdcm. Using "-method copy" approximately 200 files per second are processed on the same machine. 
+In this test Horos was asked to "link" to the input folder. The python script was started with the '-symlink' flag. About 970 images per second can be processed by sdcm. Using "-method copy" approximately 200 files per second are processed on the same machine.
 
 > [!NOTE]
 > The bash option is by far the worst-case scenario, not because of bash but because DICOM tags are extracted using repeated calls with "dcmdump". This could be improved by using dcm2json and pulling values using jq (left to the reader).
@@ -54,7 +54,7 @@ Writing to disk is usually the slowest part of sorting DICOM files. To speed thi
 cp -Lr <output folder>/input/<patient>/<study>/<series> /somewhere/else/
 ```
 
-The default (option '-method copy') is slower but generates a physical copy of files in the output folder. If you are only interested in a single series use '-method link' followed by 'cp -L'. 
+The default (option '-method copy') is slower but generates a physical copy of files in the output folder. If you are only interested in a single series use '-method link' followed by 'cp -L'.
 
 > [!NOTE]
 > Warning: Scanning large non-DICOM files takes a lot of time until it fails. To reduce that scantime sdcm uses a heuristic based on filenames. It assumes that DICOM files either do not have an extension or have the ".dcm" extension. All other files are ignored. This implies that sdcm will ignore files with an extension like ".dcm.bak".
@@ -108,7 +108,7 @@ sdcm -verbose \
 The folder option can also be set as an environment variable SDCM_FOLDER_PATH.
 
 ```bash
-SDCM_FOLDER_PATH="{PatientID}/{StudyDate}/{SeriesNumber}_{SeriesDescription}/{Modality}_{counter}.dcm" 
+SDCM_FOLDER_PATH="{PatientID}/{StudyDate}/{SeriesNumber}_{SeriesDescription}/{Modality}_{counter}.dcm"
 sdcm -verbose -method link <input folder> <output folder>
 ```
 
@@ -193,3 +193,15 @@ Usage of sdcm:
   -version
     	Print the version number
 ```
+
+### Failure modes
+
+A common error is to have insufficient permissions for all or some of the folders. Make sure you are
+allowed to read from all input files and directories and that you have permissions to write into the
+output directory.
+
+You get too many output directories? In this case there could have been an error with the pseudonymization
+procedure of your DICOM data. Fix that anonymization process and start again.
+
+> [!NOTE]
+> Individual DICOM files depend on each others meta-data. Id values have to agree on the study and series level to correctly encode that images belong to a volume. A study is usually a single scanning event, a series is a subset of the files from a study, for example all files that belong to the same volume. A pseudonymization procedure can try to change these study and series level id's. If it tries to do this it must ensure that the generated ids follow the same logic of study and series. All DICOM files that belong to the same study need the same id (StudyInstanceUID). All DICOM files that belong to the same series/volume need the same new series id (SeriesInstanceUID). Using your anonymizer wrongly - e.g. performing pseudonymization of ids individually on each DICOM file will destroy the assignment of individual images to series and studies. Such a broken collection of DICOM files results in many folders, one of each image.
