@@ -362,12 +362,6 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 						Modality = "UK" // unknown
 					}
 				}*/
-		// keep track of the patients, studies and series but only if we use verbose mode
-		if verboseFlag {
-			UpdateCounter(&listPatients, dicomVals[tag.PatientID])
-			UpdateCounter(&listStudies, dicomVals[tag.StudyInstanceUID])
-			UpdateCounter(&listSeries, dicomVals[tag.SeriesInstanceUID])
-		}
 
 		//var SOPInstanceUID string
 		//SOPInstanceUIDVal, err := dataset.FindElementByTag(tag.SOPInstanceUID)
@@ -375,9 +369,24 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 		//	SOPInstanceUID = dicom.MustGetStrings(SOPInstanceUIDVal.Value)[0]
 		//}
 
+		// if we filter we might not like this file
+		var skipThisFile bool = false
+
 		// now create the folder structure based on outputFolderFlag, treat the last entry as filename
 		pps := outputFolderFlag
 		for t := range dicomVals {
+			// if we have a dicomTags[t] that contains an "==" we need to filter, only allow matching entries
+			// TODO: could be done faster if we cache the regular expressions for each tag they are needed
+			if strings.Contains(dicomTags[t], "==") {
+				r := strings.Split(dicomTags[t], "==")[1]
+				r = strings.TrimSuffix(r, "}")
+				re := regexp.MustCompile(r)
+				if !(re.MatchString(dicomVals[t])) {
+					skipThisFile = true
+					break
+				}
+			}
+
 			if t == tag.SeriesNumber {
 				sn, err := strconv.Atoi(dicomVals[tag.SeriesNumber])
 				if err == nil {
@@ -389,6 +398,21 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 				pps = strings.Replace(pps, dicomTags[t], dicomVals[t], -1)
 			}
 		}
+		if skipThisFile {
+			atomic.AddInt32(&counterError, 1)
+			if debugFlag {
+				fmt.Printf("[%d] ignore file, cannot read as DICOM: \"%s\"\n\n", counterError, path)
+			}
+			return nil
+		}
+
+		// keep track of the patients, studies and series but only if we use verbose mode
+		if verboseFlag {
+			UpdateCounter(&listPatients, dicomVals[tag.PatientID])
+			UpdateCounter(&listStudies, dicomVals[tag.StudyInstanceUID])
+			UpdateCounter(&listSeries, dicomVals[tag.SeriesInstanceUID])
+		}
+
 		//pps = strings.Replace(pps, "{PatientID}", PatientID, -1)
 		//pps = strings.Replace(pps, "{PatientName}", PatientName, -1)
 		//pps = strings.Replace(pps, "{StudyDate}", StudyDate, -1)
@@ -617,6 +641,9 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\t\t	{StudyDate}_{StudyTime}/\n")
 		fmt.Fprintf(os.Stderr, "\t\t		{SeriesNumber}_{SeriesDescription}/\n")
 		fmt.Fprintf(os.Stderr, "\t\t			{Modality}_{SOPInstanceUID}.dcm\n")
+		fmt.Fprintf(os.Stderr, "\n\tTo filter for specific DICOM files add a regular expression to the DICOM tag after '=='.\n")
+		fmt.Fprintf(os.Stderr, "\n\tExample:\n")
+		fmt.Fprintf(os.Stderr, "\t\t{Modality=(MR|CT)}\n")
 
 		fmt.Fprintf(os.Stderr, "\n\033[1mOPTIONS\033[0m\n")
 		flag.PrintDefaults()
@@ -657,10 +684,15 @@ func main() {
 		if e == "counter" {
 			continue
 		}
+		// feature: if we find an == sign we use a regexp to filter, for now just extract the first part
+		if strings.Contains(e, "==") {
+			e = strings.Split(e, "==")[0]
+		}
+
 		if t, err := tag.FindByName(e); err == nil {
 			dicomTags[t.Tag] = matches[a]
 		} else {
-			fmt.Printf("Warning, unknown DICOM tag with name \"%s\", cannot be used as a path variable, %s", matches[a], err)
+			fmt.Printf("Warning, unknown DICOM tag with name \"%s\", cannot be used as a path variable, (%s)\n", matches[a], err)
 		}
 	}
 
@@ -753,6 +785,6 @@ func main() {
 		if numFiles == 1 {
 			s = ""
 		}
-		fmt_local.Printf("✓ sorted %d file%s [%d non-DICOM files ignored]\n", numFiles, s, counterError)
+		fmt_local.Printf("✓ sorted %d file%s [%d non-DICOM files ignored or filtered]\n", numFiles, s, counterError)
 	}
 }

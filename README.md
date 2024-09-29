@@ -112,7 +112,9 @@ SDCM_FOLDER_PATH="{PatientID}/{StudyDate}/{SeriesNumber}_{SeriesDescription}/{Mo
 sdcm -verbose -method link <input folder> <output folder>
 ```
 
-You can store a folder path in an external text file. Such a file can be used on the command line if the value of '-folder' starts with a '@'-character (e.g. '-folder @my_folder_options_file.txt').
+Filter for specific files. By specifying a regular expression for a DICOM tag you can restrict the output to matching files only. For example "{Modality==MR}" will restrict the output to files with the modality tag "MR".
+
+Store a folder path in an external text file. Such a file can be used on the command line if the value of '-folder' starts with a '@'-character (e.g. '-folder @my_folder_options_file.txt').
 
 ```bash
 # Example format path file for sdcm
@@ -175,14 +177,40 @@ sdcm --help
 This should print the help message:
 
 ```
-Usage of sdcm:
+NAME
+	sdcm - sort DICOM files into folders
+
+USAGE
+	sdcm (input folder) [(input folder N) ...] (output folder)
+
+DESCRIPTION
+	sdcm transfers DICOM files from one location to another. The output directory tree structure is based on DICOM meta-data.
+	Additionally to named DICOM tags a numeric '{counter}' variable can be used. The argument to folder will be interpreted
+	as a filename if it starts with an '@'-character. The file may contain the folder path as text.
+
+		# Example format path file for sdcm
+		# Text after a '#' character is ignored. Spaces are also ignored.
+		# Uses empty strings if tags have no value or do not exist.
+		# Use this template with:
+		#     sdcm -format @default_format (input folder) (output folder)
+	
+		{PatientID}_{PatientName}/
+			{StudyDate}_{StudyTime}/
+				{SeriesNumber}_{SeriesDescription}/
+					{Modality}_{SOPInstanceUID}.dcm
+
+	To filter for specific DICOM files add a regular expression to the DICOM tag after '=='.
+
+	Example:
+		{Modality=(MR|CT)}
+
+OPTIONS
   -cpus int
     	Specify the number of worker threads used for processing (default 8)
   -debug
     	Print verbose and add messages for skipped files
   -folder string
-    	Specify the requested output folder path. Additionally to named DICOM tags a numeric '{counter}' variable is provided.
-    	The argument will be interpreted as a filename if it is preceeded with an '@'-character.
+    	Specify the requested output folder path.
     	 (default "{PatientID}_{PatientName}/{StudyDate}_{StudyTime}/{SeriesNumber}_{SeriesDescription}/{Modality}_{SOPInstanceUID}.dcm")
   -method string
     	Create symbolic links (faster) or copy files [copy|link] (default "copy")
@@ -192,6 +220,13 @@ Usage of sdcm:
     	Print more verbose output
   -version
     	Print the version number
+
+ENVIRONMENT
+	The following environment variables affect the execution of sdcm:
+
+	SDCM_FOLDER_PATH
+		The default value for option -folder.
+
 ```
 
 ### Failure modes
