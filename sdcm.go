@@ -602,7 +602,7 @@ func main() {
 	//rand.Seed(time.Now().UnixNano())
 	// disable logging
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "\n\033[1mNAME\033[0m\n\t%s - sort DICOM files into folders\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "\n\033[1mNAME\033[0m\n\t%s - sort DICOM files into folders\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "\033[1mUSAGE\033[0m\n\t%s (input folder) [(input folder N) ...] (output folder)\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "\n\033[1mDESCRIPTION\033[0m\n\t\033[1msdcm\033[0m transfers DICOM files from one location to another. The output directory tree structure is based on DICOM meta-data.\n")
 		fmt.Fprintf(os.Stderr, "\tAdditionally to named DICOM tags a numeric '{counter}' variable can be used. The argument to folder will be interpreted\n")
@@ -621,7 +621,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\n\033[1mOPTIONS\033[0m\n")
 		flag.PrintDefaults()
 		fmt.Fprintf(os.Stderr, "\n\033[1mENVIRONMENT\033[0m\n\tThe following environment variables affect the execution of sdcm:\n\n")
-		fmt.Fprintf(os.Stderr, "\tSDCM_FOLDER_PATH\n\t\tThe default path for option -folder.\n\n")
+		fmt.Fprintf(os.Stderr, "\tSDCM_FOLDER_PATH\n\t\tThe default value for option -folder.\n\n")
 	}
 
 	log.SetFlags(0)
@@ -717,7 +717,8 @@ func main() {
 	//own_name = os.Args[0]
 
 	if len(os.Args) < 3 {
-		fmt.Println("Usage: <input path 1> [<input path N>] <output path>")
+		flag.Usage()
+		//fmt.Println("Usage: <input path 1> [<input path N>] <output path>")
 		os.Exit(-1)
 	}
 	var input []string
