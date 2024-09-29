@@ -202,7 +202,7 @@ DESCRIPTION
 	To filter for specific DICOM files add a regular expression to the DICOM tag after '=='.
 
 	Example:
-		{Modality=(MR|CT)}
+		{Modality==(MR|CT)}
 
 OPTIONS
   -cpus int
