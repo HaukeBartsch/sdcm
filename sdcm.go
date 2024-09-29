@@ -451,7 +451,7 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 			if ok {
 				t, err := times.Stat(in_file)
 				if err != nil {
-					fmt.Printf("errror, could not stat the output file")
+					fmt.Printf("error, could not stat the output file")
 				} else {
 					os.Chtimes(outputPathFileName, t.AccessTime(), t.ModTime())
 				}
@@ -504,7 +504,7 @@ func sort(source_paths []string, dest_path string) int32 {
 	if _, err := os.Stat(destination_path); os.IsNotExist(err) {
 		err := os.Mkdir(destination_path, 0755)
 		if err != nil {
-			exitGracefully(fmt.Errorf("could not create output directory %s. Output directory should exist", destination_path))
+			exitGracefully(fmt.Errorf("could not create output directory \"%s\", %s", destination_path, err.Error()))
 		}
 	}
 	// storing information in global objects
@@ -601,13 +601,36 @@ func main() {
 
 	//rand.Seed(time.Now().UnixNano())
 	// disable logging
+	flag.Usage = func() {
+		fmt.Fprintf(os.Stderr, "\n\033[1mNAME\033[0m\n\t%s - sort DICOM files into folders\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "\033[1mUSAGE\033[0m\n\t%s (input folder) [(input folder N) ...] (output folder)\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "\n\033[1mDESCRIPTION\033[0m\n\t\033[1msdcm\033[0m transfers DICOM files from one location to another. The output directory tree structure is based on DICOM meta-data.\n")
+		fmt.Fprintf(os.Stderr, "\tAdditionally to named DICOM tags a numeric '{counter}' variable can be used. The argument to folder will be interpreted\n")
+		fmt.Fprintf(os.Stderr, "\tas a filename if it starts with an '@'-character. The file may contain the folder path as text.\n\n")
+		fmt.Fprintf(os.Stderr, "\t\t# Example format path file for sdcm\n")
+		fmt.Fprintf(os.Stderr, "\t\t# Text after a '#' character is ignored. Spaces are also ignored.\n")
+		fmt.Fprintf(os.Stderr, "\t\t# Uses empty strings if tags have no value or do not exist.\n")
+		fmt.Fprintf(os.Stderr, "\t\t# Use this template with:\n")
+		fmt.Fprintf(os.Stderr, "\t\t#     sdcm -format @default_format (input folder) (output folder)\n")
+		fmt.Fprintf(os.Stderr, "\t\n")
+		fmt.Fprintf(os.Stderr, "\t\t{PatientID}_{PatientName}/\n")
+		fmt.Fprintf(os.Stderr, "\t\t	{StudyDate}_{StudyTime}/\n")
+		fmt.Fprintf(os.Stderr, "\t\t		{SeriesNumber}_{SeriesDescription}/\n")
+		fmt.Fprintf(os.Stderr, "\t\t			{Modality}_{SOPInstanceUID}.dcm\n")
+
+		fmt.Fprintf(os.Stderr, "\n\033[1mOPTIONS\033[0m\n")
+		flag.PrintDefaults()
+		fmt.Fprintf(os.Stderr, "\n\033[1mENVIRONMENT\033[0m\n\tThe following environment variables affect the execution of sdcm:\n\n")
+		fmt.Fprintf(os.Stderr, "\tSDCM_FOLDER_PATH\n\t\tThe default path for option -folder.\n\n")
+	}
+
 	log.SetFlags(0)
 	log.SetOutput(io.Discard /*ioutil.Discard*/)
 
 	flag.IntVar(&num_workers, "cpus", int(runtime.GOMAXPROCS(0)), "Specify the number of worker threads used for processing")
 	flag.StringVar(&methodFlag, "method", "copy", "Create symbolic links (faster) or copy files [copy|link]")
 	flag.StringVar(&outputFolderFlag, "folder", "{PatientID}_{PatientName}/{StudyDate}_{StudyTime}/{SeriesNumber}_{SeriesDescription}/{Modality}_{SOPInstanceUID}.dcm",
-		"Specify the requested output folder path. Additionally to named DICOM tags a numeric '{counter}' variable is provided.\nThe argument will be interpreted as a filename if it is preceeded with an '@'-character.\n")
+		"Specify the requested output folder path.\n")
 	flag.BoolVar(&verboseFlag, "verbose", false, "Print more verbose output")
 	flag.BoolVar(&debugFlag, "debug", false, "Print verbose and add messages for skipped files")
 	flag.BoolVar(&versionFlag, "version", false, "Print the version number")
@@ -637,7 +660,7 @@ func main() {
 		if t, err := tag.FindByName(e); err == nil {
 			dicomTags[t.Tag] = matches[a]
 		} else {
-			fmt.Printf("Warning, unknown DICOM tag with name %s, cannot use as path variable, %s", matches[a], err)
+			fmt.Printf("Warning, unknown DICOM tag with name \"%s\", cannot be used as a path variable, %s", matches[a], err)
 		}
 	}
 
@@ -694,7 +717,7 @@ func main() {
 	//own_name = os.Args[0]
 
 	if len(os.Args) < 3 {
-		fmt.Println("Usage: <input path 1> ... <output path>")
+		fmt.Println("Usage: <input path 1> [<input path N>] <output path>")
 		os.Exit(-1)
 	}
 	var input []string
