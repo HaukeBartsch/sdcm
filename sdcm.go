@@ -300,7 +300,8 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 			val, err = dataset.FindElementByTag(key)
 			if err == nil {
 				var vs string = dicom.MustGetStrings(val.Value)[0]
-				dicomVals[key] = vs
+				dicomVals[key] = strings.Replace(vs, string(os.PathSeparator), " ", -1)
+				// we should check if vs is a safe string for a directory name
 			} else {
 				dicomVals[key] = ""
 			}
