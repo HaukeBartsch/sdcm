@@ -484,6 +484,14 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 			if err = os.Symlink(in_file, outputPathFileName); err != nil {
 				fmt.Printf("Warning: could not create symlink %s for %s, %s\n", in_file, outputPathFileName, err)
 			}
+		} else if methodFlag == "emptyfile" {
+			// don't do anything else
+			emptyfile, e := os.Create(outputPathFileName)
+			if e != nil {
+				log.Fatal(e)
+			}
+			log.Println(emptyfile)
+			emptyfile.Close()
 		} else {
 			// instead of copy we assume we want a symbolic link
 			exitGracefully(fmt.Errorf("unknown option \"%s\" for method flag, we support only \"copy\" (default) and \"link\"", methodFlag))
