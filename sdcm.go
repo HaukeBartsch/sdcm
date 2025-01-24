@@ -63,11 +63,16 @@ var preserve map[string]bool
 
 var fmt_local *message.Printer
 
+// based on Wikipedia: / \ ? * : | " < >
+// replace characters to create a valid directory name on all systems
+var sanitizeFilenameReplacer *strings.Replacer = strings.NewReplacer("/", " ", "\\", "", "?", " ", "*", " ", ":", " ", "|", " ", "\"", " ", "<", " ", ">", " ")
+
 var (
 	methodFlag       string
 	verboseFlag      bool
 	versionFlag      bool
 	outputFolderFlag string
+	outputFormatFlag string
 	debugFlag        bool
 	num_workers      int
 	preserveFlag     string
@@ -184,6 +189,159 @@ func isNum(s string) bool {
 	return true
 }
 
+func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_file string) error {
+	// in some special cases we want to skip this DICOM, e.g. DICOMDIR
+	val, err := dataset.FindElementByTag(tag.MediaStorageSOPClassUID)
+	if err == nil {
+		var vs string = dicom.MustGetStrings(val.Value)[0]
+		if vs == "1.2.840.10008.1.3.10" {
+			// skip MediaStorageDirectoryStorage
+			atomic.AddInt32(&counterError, 1)
+			if debugFlag {
+				fmt.Printf("[%d] ignore DICOMDIR file: \"%s\"\n\n", counterError, path)
+			}
+			return nil
+		}
+	}
+
+	// go through all tags we need and pull those, use a map of tag.Tag as key and string as value
+	// use together with dicomTags (tag.Tag as key and "{bla}" as value).
+	dicomVals := make(map[tag.Tag]string, 0)
+	for key := range dicomTags {
+		val, err = dataset.FindElementByTag(key)
+		if err == nil {
+			var vs string = dicom.MustGetStrings(val.Value)[0]
+			// this is used as a filename, we should sanitize them
+			dicomVals[key] = sanitizeFilenameReplacer.Replace(vs)
+			// we should check if vs is a safe string for a directory name
+		} else {
+			dicomVals[key] = ""
+		}
+	}
+
+	//printMem()
+
+	// if we filter we might not like this file
+	var skipThisFile bool = false
+
+	// now create the folder structure based on outputFolderFlag, treat the last entry as filename
+	pps := outputFolderFlag
+	for t := range dicomVals {
+		// if we have a dicomTags[t] that contains an "==" we need to filter, only allow matching entries
+		// TODO: could be done faster if we cache the regular expressions for each tag they are needed
+		if strings.Contains(dicomTags[t], "==") {
+			r := strings.Split(dicomTags[t], "==")[1]
+			r = strings.TrimSuffix(r, "}")
+			re := regexp.MustCompile(r)
+			if !(re.MatchString(dicomVals[t])) {
+				skipThisFile = true
+				break
+			}
+		}
+
+		if t == tag.SeriesNumber {
+			sn, err := strconv.Atoi(dicomVals[tag.SeriesNumber])
+			if err == nil {
+				pps = strings.Replace(pps, "{SeriesNumber}", fmt.Sprintf("%03d", sn), -1)
+			} else {
+				pps = strings.Replace(pps, "{SeriesNumber}", dicomVals[tag.SeriesNumber], -1)
+			}
+		} else {
+			pps = strings.Replace(pps, dicomTags[t], dicomVals[t], -1)
+		}
+	}
+	if skipThisFile {
+		atomic.AddInt32(&counterError, 1)
+		if debugFlag {
+			fmt.Printf("[%d] ignore file, cannot read as DICOM: \"%s\"\n\n", counterError, path)
+		}
+		return nil
+	}
+
+	// keep track of the patients, studies and series but only if we use verbose mode
+	if verboseFlag {
+		UpdateCounter(&listPatients, dicomVals[tag.PatientID])
+		UpdateCounter(&listStudies, dicomVals[tag.StudyInstanceUID])
+		UpdateCounter(&listSeries, dicomVals[tag.SeriesInstanceUID])
+	}
+
+	pps = strings.Replace(pps, "{counter}", fmt.Sprintf("%06d", counter), -1) // use the global counter
+	pps = strings.Replace(pps, " ", "-", -1)                                  // remove spaces
+
+	pathPieces := splitPath(pps)
+	piece := 0
+	oOrderPatientPath := oOrderPath
+	for piece < len(pathPieces)-1 {
+		// this loop will concurrently try to create these folders, maybe they exist already even if we get an error in Mkdir
+		oOrderPatientPath = filepath.Join(oOrderPatientPath, pathPieces[piece])
+		if _, err := os.Stat(oOrderPatientPath); os.IsNotExist(err) {
+			err := os.Mkdir(oOrderPatientPath, 0755)
+			if err != nil {
+				if _, err2 := os.Stat(oOrderPatientPath); os.IsNotExist(err2) {
+					exitGracefully(fmt.Errorf("could not create data directory %s (%s)", oOrderPatientPath, err))
+				}
+			}
+		}
+		piece = piece + 1
+	}
+	// filename is
+	fname := pathPieces[len(pathPieces)-1]
+
+	outputPath := oOrderPatientPath
+
+	outputPathFileName := fmt.Sprintf("%s/%s", outputPath, fname)
+	_, err = os.Stat(outputPathFileName)
+	var c int = 0
+	atomic.AddInt32(&counter, 1)
+	for !os.IsNotExist(err) {
+		c = c + 1 // make filename unique by adding a number
+		fname := fmt.Sprintf("%s_%03d%s", strings.TrimSuffix(fname, filepath.Ext(fname)), c, filepath.Ext(fname))
+		outputPathFileName = fmt.Sprintf("%s/%s", outputPath, fname)
+		//outputPathFileName := fmt.Sprintf("%s/%s_%03d.dcm", outputPath, SOPInstanceUID, c)
+		_, err = os.Stat(outputPathFileName)
+	}
+	var bw int64 = 0
+	err = nil
+	if methodFlag == "copy" {
+		bw, err = copyFileContents(in_file, outputPathFileName)
+		// if we really copy the file we can also check for preserve
+		_, ok := preserve["timestamp"]
+		if ok {
+			t, err := times.Stat(in_file)
+			if err != nil {
+				fmt.Printf("error, could not stat the output file")
+			} else {
+				os.Chtimes(outputPathFileName, t.AccessTime(), t.ModTime())
+			}
+		}
+	} else if methodFlag == "link" {
+		if err = os.Symlink(in_file, outputPathFileName); err != nil {
+			fmt.Printf("Warning: could not create symlink %s for %s, %s\n", in_file, outputPathFileName, err)
+		}
+	} else if methodFlag == "emptyfile" { // TODO: do we keep this option?
+		// don't do anything else
+		emptyfile, e := os.Create(outputPathFileName)
+		if e != nil {
+			log.Fatal(e)
+		}
+		log.Println(emptyfile)
+		emptyfile.Close()
+	} else if methodFlag == "dirs_only" { // TODO: do we keep this option?
+		// don't do anything else
+		// remove the filename (keep the directory)
+		opfn := filepath.Dir(outputPathFileName)
+		os.MkdirAll(opfn, os.ModePerm)
+	} else {
+		// instead of copy we assume we want a symbolic link
+		exitGracefully(fmt.Errorf("unknown option \"%s\" for method flag, we support only \"copy\" (default) and \"link\"", methodFlag))
+	}
+	if err != nil {
+		fmt.Println(err)
+	}
+	atomic.AddInt64(&bytesWritten, bw)
+	return nil
+}
+
 // the path we get does not have the input path prefixed
 func walkFunc(path string, info os.FileInfo, err error) error {
 	if info == nil {
@@ -256,253 +414,34 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 	// to also stop parsing after we have all the keys we need.
 	// BenchmarkParser_NextAPI
 
-	/*	sT := time.Now()
-		keyMap := map[tag.Tag]string{
-			tag.StudyInstanceUID:  "",
-			tag.SeriesInstanceUID: "",
-			tag.SOPInstanceUID:    "",
-			tag.PatientID:         "",
-			tag.PatientName:       "",
-			tag.SeriesDescription: "",
-			tag.StudyDescription:  "",
-			tag.StudyDate:         "",
-			tag.StudyTime:         "",
-			tag.SeriesNumber:      "",
-			tag.Modality:          "",
-		}
-			populate(&keyMap, in_file)
-			fmt.Printf("populate time: %v %s\n", time.Since(sT), path) */
+	// Detect the filetype first
+	if filepath.Ext(path) == ".tgz" {
 
-	//sT := time.Now()
-	//tag_list := []tag.Tag{tag.StudyInstanceUID, tag.SeriesInstanceUID, tag.PatientID}
-	//dataset, err := dicom.ParseFile(in_file, nil, dicom.SkipPixelData(), dicom.ParseTheseTags(tag_list)) // See also: dicom.Parse which has a generic io.Reader API.
+	}
+
 	dataset, err := dicom.ParseFile(in_file, nil, dicom.SkipPixelData()) // See also: dicom.Parse which has a generic io.Reader API.
+
+	/*	TODO: switch to dicom.Parse as it can work with an io.Reader.
+		    TODO: add the ability to detect tgz as file extension and get an io.Reader
+			      from in-memory extraction of a tgz file. Check each DICOM file inside.
+		    f, err := os.Open(filepath)
+			if err != nil {
+				return Dataset{}, err
+			}
+			defer f.Close()
+
+			info, err := f.Stat()
+			if err != nil {
+				return Dataset{}, err
+			}
+
+			return Parse(f, info.Size(), frameChan, opts...) */
+
 	//fmt.Printf("ParseFile time: %v %s\n", time.Since(sT), path)
-	if err == nil {
-		// in some special cases we want to skip this DICOM, e.g. DICOMDIR
-		val, err := dataset.FindElementByTag(tag.MediaStorageSOPClassUID)
-		if err == nil {
-			var vs string = dicom.MustGetStrings(val.Value)[0]
-			if vs == "1.2.840.10008.1.3.10" {
-				// skip MediaStorageDirectoryStorage
-				atomic.AddInt32(&counterError, 1)
-				if debugFlag {
-					fmt.Printf("[%d] ignore DICOMDIR file: \"%s\"\n\n", counterError, path)
-				}
-				return nil
-			}
-		}
-
-		// go through all tags we need and pull those, use a map of tag.Tag as key and string as value
-		// use together with dicomTags (tag.Tag as key and "{bla}" as value).
-		dicomVals := make(map[tag.Tag]string, 0)
-		for key := range dicomTags {
-			val, err = dataset.FindElementByTag(key)
-			if err == nil {
-				var vs string = dicom.MustGetStrings(val.Value)[0]
-				dicomVals[key] = strings.Replace(vs, string(os.PathSeparator), " ", -1)
-				// we should check if vs is a safe string for a directory name
-			} else {
-				dicomVals[key] = ""
-			}
-		}
-
-		//printMem()
-		/*StudyInstanceUIDVal, err := dataset.FindElementByTag(tag.StudyInstanceUID)
-		if err == nil {
-			var StudyInstanceUID string = dicom.MustGetStrings(StudyInstanceUIDVal.Value)[0]
-			SeriesInstanceUIDVal, err := dataset.FindElementByTag(tag.SeriesInstanceUID)
-			if err == nil {
-				var SeriesInstanceUID string = dicom.MustGetStrings(SeriesInstanceUIDVal.Value)[0]
-
-				var SeriesDescription string
-				SeriesDescriptionVal, err := dataset.FindElementByTag(tag.SeriesDescription)
-				if err == nil {
-					SeriesDescription = dicom.MustGetStrings(SeriesDescriptionVal.Value)[0]
-					SeriesDescription = clearString(SeriesDescription)
-				}
-				var StudyDescription string
-				StudyDescriptionVal, err := dataset.FindElementByTag(tag.StudyDescription)
-				if err == nil {
-					StudyDescription = dicom.MustGetStrings(StudyDescriptionVal.Value)[0]
-					StudyDescription = clearString(StudyDescription)
-				}
-				var PatientID string
-				PatientIDVal, err := dataset.FindElementByTag(tag.PatientID)
-				if err == nil {
-					PatientID = dicom.MustGetStrings(PatientIDVal.Value)[0]
-				}
-				var PatientName string
-				PatientNameVal, err := dataset.FindElementByTag(tag.PatientName)
-				if err == nil {
-					PatientName = dicom.MustGetStrings(PatientNameVal.Value)[0]
-				}
-				var StudyDate string
-				StudyDateVal, err := dataset.FindElementByTag(tag.StudyDate)
-				if err == nil {
-					StudyDate = dicom.MustGetStrings(StudyDateVal.Value)[0]
-				}
-				var StudyTime string
-				StudyTimeVal, err := dataset.FindElementByTag(tag.StudyTime)
-				if err == nil {
-					StudyTime = dicom.MustGetStrings(StudyTimeVal.Value)[0]
-				}
-				var SeriesNumber string
-				SeriesNumberVal, err := dataset.FindElementByTag(tag.SeriesNumber)
-				if err == nil {
-					SeriesNumber = dicom.MustGetStrings(SeriesNumberVal.Value)[0]
-					if SeriesNumber == "" {
-						SeriesNumber = "000"
-					}
-				}
-				var Modality string
-				ModalityVal, err := dataset.FindElementByTag(tag.Modality)
-				if err == nil {
-					Modality = dicom.MustGetStrings(ModalityVal.Value)[0]
-					if Modality == "" {
-						Modality = "UK" // unknown
-					}
-				}*/
-
-		//var SOPInstanceUID string
-		//SOPInstanceUIDVal, err := dataset.FindElementByTag(tag.SOPInstanceUID)
-		//if err == nil {
-		//	SOPInstanceUID = dicom.MustGetStrings(SOPInstanceUIDVal.Value)[0]
-		//}
-
-		// if we filter we might not like this file
-		var skipThisFile bool = false
-
-		// now create the folder structure based on outputFolderFlag, treat the last entry as filename
-		pps := outputFolderFlag
-		for t := range dicomVals {
-			// if we have a dicomTags[t] that contains an "==" we need to filter, only allow matching entries
-			// TODO: could be done faster if we cache the regular expressions for each tag they are needed
-			if strings.Contains(dicomTags[t], "==") {
-				r := strings.Split(dicomTags[t], "==")[1]
-				r = strings.TrimSuffix(r, "}")
-				re := regexp.MustCompile(r)
-				if !(re.MatchString(dicomVals[t])) {
-					skipThisFile = true
-					break
-				}
-			}
-
-			if t == tag.SeriesNumber {
-				sn, err := strconv.Atoi(dicomVals[tag.SeriesNumber])
-				if err == nil {
-					pps = strings.Replace(pps, "{SeriesNumber}", fmt.Sprintf("%03d", sn), -1)
-				} else {
-					pps = strings.Replace(pps, "{SeriesNumber}", dicomVals[tag.SeriesNumber], -1)
-				}
-			} else {
-				pps = strings.Replace(pps, dicomTags[t], dicomVals[t], -1)
-			}
-		}
-		if skipThisFile {
-			atomic.AddInt32(&counterError, 1)
-			if debugFlag {
-				fmt.Printf("[%d] ignore file, cannot read as DICOM: \"%s\"\n\n", counterError, path)
-			}
+	if err == nil { // switch in_file to an io.Reader? We could create a copy from inside a tgz... but links do not work anymore...
+		if processDataset(dataset, path, oOrderPath, in_file) == nil {
 			return nil
 		}
-
-		// keep track of the patients, studies and series but only if we use verbose mode
-		if verboseFlag {
-			UpdateCounter(&listPatients, dicomVals[tag.PatientID])
-			UpdateCounter(&listStudies, dicomVals[tag.StudyInstanceUID])
-			UpdateCounter(&listSeries, dicomVals[tag.SeriesInstanceUID])
-		}
-
-		//pps = strings.Replace(pps, "{PatientID}", PatientID, -1)
-		//pps = strings.Replace(pps, "{PatientName}", PatientName, -1)
-		//pps = strings.Replace(pps, "{StudyDate}", StudyDate, -1)
-		//pps = strings.Replace(pps, "{StudyTime}", StudyTime, -1)
-		//pps = strings.Replace(pps, "{StudyInstanceUID}", StudyInstanceUID, -1)
-		//pps = strings.Replace(pps, "{SeriesInstanceUID}", SeriesInstanceUID, -1)
-		//pps = strings.Replace(pps, "{SeriesDescription}", SeriesDescription, -1)
-		//pps = strings.Replace(pps, "{StudyDescription}", StudyDescription, -1)
-		//pps = strings.Replace(pps, "{StudyInstanceUID}", StudyInstanceUID, -1)
-		//pps = strings.Replace(pps, "{SOPInstanceUID}", SOPInstanceUID, -1)
-		//pps = strings.Replace(pps, "{Modality}", Modality, -1)
-		/*sn, err := strconv.Atoi(SeriesNumber)
-		if err == nil {
-			pps = strings.Replace(pps, "{SeriesNumber}", fmt.Sprintf("%02d", sn), -1)
-		} else {
-			// fallback
-			pps = strings.Replace(pps, "{SeriesNumber}", SeriesNumber, -1)
-		}*/
-		pps = strings.Replace(pps, "{counter}", fmt.Sprintf("%06d", counter), -1) // use the global counter
-		pps = strings.Replace(pps, " ", "-", -1)                                  // remove spaces
-
-		pathPieces := splitPath(pps)
-		piece := 0
-		oOrderPatientPath := oOrderPath
-		for piece < len(pathPieces)-1 {
-			// this loop will concurrently try to create these folders, maybe they exist already even if we get an error in Mkdir
-			oOrderPatientPath = filepath.Join(oOrderPatientPath, pathPieces[piece])
-			if _, err := os.Stat(oOrderPatientPath); os.IsNotExist(err) {
-				err := os.Mkdir(oOrderPatientPath, 0755)
-				if err != nil {
-					if _, err2 := os.Stat(oOrderPatientPath); os.IsNotExist(err2) {
-						exitGracefully(fmt.Errorf("could not create data directory %s (%s)", oOrderPatientPath, err))
-					}
-				}
-			}
-			piece = piece + 1
-		}
-		// filename is
-		fname := pathPieces[len(pathPieces)-1]
-
-		outputPath := oOrderPatientPath
-
-		outputPathFileName := fmt.Sprintf("%s/%s", outputPath, fname)
-		_, err = os.Stat(outputPathFileName)
-		var c int = 0
-		atomic.AddInt32(&counter, 1)
-		for !os.IsNotExist(err) {
-			c = c + 1 // make filename unique by adding a number
-			fname := fmt.Sprintf("%s_%03d%s", strings.TrimSuffix(fname, filepath.Ext(fname)), c, filepath.Ext(fname))
-			outputPathFileName = fmt.Sprintf("%s/%s", outputPath, fname)
-			//outputPathFileName := fmt.Sprintf("%s/%s_%03d.dcm", outputPath, SOPInstanceUID, c)
-			_, err = os.Stat(outputPathFileName)
-		}
-		var bw int64 = 0
-		err = nil
-		if methodFlag == "copy" {
-			bw, err = copyFileContents(in_file, outputPathFileName)
-			// if we really copy the file we can also check for preserve
-			_, ok := preserve["timestamp"]
-			if ok {
-				t, err := times.Stat(in_file)
-				if err != nil {
-					fmt.Printf("error, could not stat the output file")
-				} else {
-					os.Chtimes(outputPathFileName, t.AccessTime(), t.ModTime())
-				}
-			}
-		} else if methodFlag == "link" {
-			if err = os.Symlink(in_file, outputPathFileName); err != nil {
-				fmt.Printf("Warning: could not create symlink %s for %s, %s\n", in_file, outputPathFileName, err)
-			}
-		} else if methodFlag == "emptyfile" {
-			// don't do anything else
-			emptyfile, e := os.Create(outputPathFileName)
-			if e != nil {
-				log.Fatal(e)
-			}
-			log.Println(emptyfile)
-			emptyfile.Close()
-		} else {
-			// instead of copy we assume we want a symbolic link
-			exitGracefully(fmt.Errorf("unknown option \"%s\" for method flag, we support only \"copy\" (default) and \"link\"", methodFlag))
-		}
-		if err != nil {
-			fmt.Println(err)
-		}
-		atomic.AddInt64(&bytesWritten, bw)
-		//			}
-		//		}
 	} else {
 		atomic.AddInt32(&counterError, 1)
 		if debugFlag {
@@ -664,14 +603,19 @@ func main() {
 	log.SetOutput(io.Discard /*ioutil.Discard*/)
 
 	flag.IntVar(&num_workers, "cpus", int(runtime.GOMAXPROCS(0)), "Specify the number of worker threads used for processing")
-	flag.StringVar(&methodFlag, "method", "copy", "Create symbolic links (faster) or copy files [copy|link]")
+	flag.StringVar(&methodFlag, "method", "copy", "Create symbolic links (faster) or copy files. If dirs_only is used no files are created [copy|link|dirs_only]")
 	flag.StringVar(&outputFolderFlag, "folder", "{PatientID}_{PatientName}/{StudyDate}_{StudyTime}/{SeriesNumber}_{SeriesDescription}/{Modality}_{SOPInstanceUID}.dcm",
 		"Specify the requested output folder path.\n")
+	flag.StringVar(&outputFormatFlag, "format", "", "Same as -folder\n")
 	flag.BoolVar(&verboseFlag, "verbose", false, "Print more verbose output")
 	flag.BoolVar(&debugFlag, "debug", false, "Print verbose and add messages for skipped files")
 	flag.BoolVar(&versionFlag, "version", false, "Print the version number")
-	flag.StringVar(&preserveFlag, "preserve", "", "Preserves the timestamp if called with '-preserve timestamp'. This option only works for method 'copy'")
+	flag.StringVar(&preserveFlag, "preserve", "", "Preserves the timestamp if called with '-preserve timestamp'. This option only works together with '-method copy'")
 	flag.Parse()
+
+	if outputFormatFlag != "" {
+		outputFolderFlag = outputFormatFlag
+	}
 
 	// allow output folder path to be specified by an environment variable
 	if outputFolderFlag == "" {
