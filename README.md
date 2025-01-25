@@ -76,9 +76,9 @@ During processing with '-verbose' the command line will show:
 
 ## Output folder structure
 
-The default output folder structure combines patient, study and series level information. You can specify a simpler output format using the "-folder" option.
+The default output folder structure combines patient, study and series level information. You can specify an output format using the "-folder" or "-format" option.
 
-Default folders:
+Default (made explicit):
 
 ```bash
 sdcm -verbose \
@@ -105,7 +105,16 @@ sdcm -verbose \
      <input folder> <output folder>
 ```
 
-The folder option can also be set as an environment variable SDCM_FOLDER_PATH.
+No data (-method dirs_only) and only a single level with series descriptions:
+
+```bash
+sdcm -verbose \
+     -method dirs_only \
+     -format "{SeriesDescription}" \
+     <input folder> <output folder>
+```
+
+The folder option for future runs of sdcm can also be set as an environment variable SDCM_FOLDER_PATH.
 
 ```bash
 SDCM_FOLDER_PATH="{PatientID}/{StudyDate}/{SeriesNumber}_{SeriesDescription}/{Modality}_{counter}.dcm"
@@ -168,7 +177,7 @@ chmod +x /usr/local/bin/sdcm
 
 ### Test the installation
 
-Test the installation by running the following command:
+Test the installation by running the following command (use "sdcm.exe" on Windows):
 
 ```bash
 sdcm --help
