@@ -121,8 +121,6 @@ SDCM_FOLDER_PATH="{PatientID}/{StudyDate}/{SeriesNumber}_{SeriesDescription}/{Mo
 sdcm -verbose -method link <input folder> <output folder>
 ```
 
-Filter for specific files. By specifying a regular expression for a DICOM tag you can restrict the output to matching files only. For example "{Modality==MR}" will restrict the output to files with the modality tag "MR".
-
 Store a folder path in an external text file. Such a file can be used on the command line if the value of '-folder' starts with a '@'-character (e.g. '-folder @my_folder_options_file.txt').
 
 ```bash
@@ -137,6 +135,10 @@ Store a folder path in an external text file. Such a file can be used on the com
 		{SeriesNumber}_{SeriesDescription}/
 			{Modality}_{SOPInstanceUID}.dcm
 ```
+
+### Filter for specific files
+
+By specifying a regular expression for a DICOM tag you can restrict the output to matching files only. For example "{Modality==MR}" will restrict the output to files with the modality tag "MR".
 
 
 ### Install on MacOS
@@ -190,7 +192,7 @@ NAME
 	sdcm - sort DICOM files into folders
 
 USAGE
-	sdcm (input folder) [(input folder N) ...] (output folder)
+	./build/macos-arm64/sdcm (input folder) [(input folder N) ...] (output folder)
 
 DESCRIPTION
 	sdcm transfers DICOM files from one location to another. The output directory tree structure is based on DICOM meta-data.
@@ -215,16 +217,19 @@ DESCRIPTION
 
 OPTIONS
   -cpus int
-    	Specify the number of worker threads used for processing (default 8)
+    	Specify the number of worker threads used for processing (default 16)
   -debug
     	Print verbose and add messages for skipped files
   -folder string
     	Specify the requested output folder path.
     	 (default "{PatientID}_{PatientName}/{StudyDate}_{StudyTime}/{SeriesNumber}_{SeriesDescription}/{Modality}_{SOPInstanceUID}.dcm")
+  -format string
+    	Same as -folder
+    	
   -method string
-    	Create symbolic links (faster) or copy files [copy|link] (default "copy")
+    	Create symbolic links (faster) or copy files. If dirs_only is used no files are created [copy|link|dirs_only] (default "copy")
   -preserve string
-    	Preserves the timestamp if called with '-preserve timestamp'. This option only works for method 'copy'
+    	Preserves the timestamp if called with '-preserve timestamp'. This option only works together with '-method copy'
   -verbose
     	Print more verbose output
   -version
@@ -235,7 +240,6 @@ ENVIRONMENT
 
 	SDCM_FOLDER_PATH
 		The default value for option -folder.
-
 ```
 
 ### Failure modes

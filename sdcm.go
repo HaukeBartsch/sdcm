@@ -591,7 +591,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\t\t			{Modality}_{SOPInstanceUID}.dcm\n")
 		fmt.Fprintf(os.Stderr, "\n\tTo filter for specific DICOM files add a regular expression to the DICOM tag after '=='.\n")
 		fmt.Fprintf(os.Stderr, "\n\tExample:\n")
-		fmt.Fprintf(os.Stderr, "\t\t{Modality=(MR|CT)}\n")
+		fmt.Fprintf(os.Stderr, "\t\t{Modality==(MR|CT)}\n")
 
 		fmt.Fprintf(os.Stderr, "\n\033[1mOPTIONS\033[0m\n")
 		flag.PrintDefaults()
