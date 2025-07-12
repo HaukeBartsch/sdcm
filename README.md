@@ -242,6 +242,18 @@ ENVIRONMENT
 		The default value for option -folder.
 ```
 
+### Notes
+
+Shells like zsh can understand the help (--help) pages produced by programs like sdcm. You can teach your shell the options of sdcm with
+
+
+```bash
+compdef _gnu_generic 
+```
+
+If you type 'sdcm -<TAB>' the shell can show you the options available.
+
+
 ### Failure modes
 
 A common error is to have insufficient permissions for all or some of the folders. Make sure you are

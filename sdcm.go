@@ -14,6 +14,7 @@ import (
 	"math"
 	"os"
 	"path/filepath"
+	"reflect"
 	"regexp"
 	"runtime"
 	"strconv"
@@ -562,6 +563,103 @@ func translateStringOrFile(outputFolderFlag string) string {
 	return outputFolderFlag
 }
 
+// -- string Value
+type stringValue string
+
+func newStringValue(val string, p *string) *stringValue {
+	*p = val
+	return (*stringValue)(p)
+}
+
+func (s *stringValue) Set(val string) error {
+	*s = stringValue(val)
+	return nil
+}
+
+func (s *stringValue) Get() any { return string(*s) }
+
+func (s *stringValue) String() string { return string(*s) }
+
+type Value interface {
+	String() string
+	Set(string) error
+}
+
+// isZeroValue determines whether the string represents the zero
+// value for a flag.
+func isZeroValue(flag *flag.Flag, value string) (ok bool, err error) {
+	// Build a zero value of the flag's Value type, and see if the
+	// result of calling its String method equals the value passed in.
+	// This works unless the Value type is itself an interface type.
+	typ := reflect.TypeOf(flag.Value)
+	var z reflect.Value
+	if typ.Kind() == reflect.Pointer {
+		z = reflect.New(typ.Elem())
+	} else {
+		z = reflect.Zero(typ)
+	}
+	// Catch panics calling the String method, which shouldn't prevent the
+	// usage message from being printed, but that we should report to the
+	// user so that they know to fix their code.
+	defer func() {
+		if e := recover(); e != nil {
+			if typ.Kind() == reflect.Pointer {
+				typ = typ.Elem()
+			}
+			err = fmt.Errorf("panic calling String method on zero %v for flag %s: %v", typ, flag.Name, e)
+		}
+	}()
+	return value == z.Interface().(Value).String(), nil
+}
+
+func MyPrintDefaults(f *flag.FlagSet) {
+	var isZeroValueErrs []error
+	f.VisitAll(func(flag *flag.Flag) {
+		var b strings.Builder
+		fmt.Fprintf(&b, "  -%s", flag.Name) // Two spaces before -; see next two comments.
+		//name := flag.Name
+		usage := flag.Usage
+		//name, usage := flag.UnquoteUsage(flag)
+		//if len(name) > 0 {
+		//	b.WriteString(" ")
+		//	b.WriteString(name)
+		//}
+		// Boolean flags of one ASCII letter are so common we
+		// treat them specially, putting their usage on the same line.
+		if b.Len() <= 4 { // space, space, '-', 'x'.
+			b.WriteString("\t")
+		} else {
+			// Four spaces before the tab triggers good alignment
+			// for both 4- and 8-space tab stops.
+			b.WriteString("\n    \t")
+		}
+		b.WriteString(strings.ReplaceAll(usage, "\n", "\n    \t"))
+
+		// Print the default value only if it differs to the zero value
+		// for this flag type.
+		if isZero, err := isZeroValue(flag, flag.DefValue); err != nil {
+			isZeroValueErrs = append(isZeroValueErrs, err)
+		} else if !isZero {
+			if _, ok := flag.Value.(*stringValue); ok {
+				// put quotes on the value
+				fmt.Fprintf(&b, " (default %q)", flag.DefValue)
+			} else {
+				fmt.Fprintf(&b, " (default %v)", flag.DefValue)
+			}
+		}
+		fmt.Fprint(f.Output(), b.String(), "\n")
+	})
+	// If calling String on any zero flag.Values triggered a panic, print
+	// the messages after the full set of defaults so that the programmer
+	// knows to fix the panic.
+	if errs := isZeroValueErrs; len(errs) > 0 {
+		fmt.Fprintln(f.Output())
+		for _, err := range errs {
+			fmt.Fprintln(f.Output(), err)
+		}
+	}
+}
+
 func main() {
 
 	// Server for pprof
@@ -594,7 +692,8 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\t\t{Modality==(MR|CT)}\n")
 
 		fmt.Fprintf(os.Stderr, "\n\033[1mOPTIONS\033[0m\n")
-		flag.PrintDefaults()
+		// The defaults should not contain the type of a flag to work with 'compdef _gnu_generic sdcm'.
+		MyPrintDefaults(flag.CommandLine)
 		fmt.Fprintf(os.Stderr, "\n\033[1mENVIRONMENT\033[0m\n\tThe following environment variables affect the execution of sdcm:\n\n")
 		fmt.Fprintf(os.Stderr, "\tSDCM_FOLDER_PATH\n\t\tThe default value for option -folder.\n\n")
 	}
@@ -602,11 +701,11 @@ func main() {
 	log.SetFlags(0)
 	log.SetOutput(io.Discard /*ioutil.Discard*/)
 
-	flag.IntVar(&num_workers, "cpus", int(runtime.GOMAXPROCS(0)), "Specify the number of worker threads used for processing")
+	flag.IntVar(&num_workers, "cpus", int(runtime.GOMAXPROCS(0)), "Number of worker threads used for processing")
 	flag.StringVar(&methodFlag, "method", "copy", "Create symbolic links (faster) or copy files. If dirs_only is used no files are created [copy|link|dirs_only]")
-	flag.StringVar(&outputFolderFlag, "folder", "{PatientID}_{PatientName}/{StudyDate}_{StudyTime}/{SeriesNumber}_{SeriesDescription}/{Modality}_{SOPInstanceUID}.dcm",
-		"Specify the requested output folder path.\n")
-	flag.StringVar(&outputFormatFlag, "format", "", "Same as -folder\n")
+	defaultFolderFormat := "{PatientID}_{PatientName}/{StudyDate}_{StudyTime}/{SeriesNumber}_{SeriesDescription}/{Modality}_{SOPInstanceUID}.dcm"
+	flag.StringVar(&outputFolderFlag, "folder", defaultFolderFormat, "Specify the requested output folder path\n")
+	flag.StringVar(&outputFormatFlag, "format", defaultFolderFormat, "Same as -folder\n")
 	flag.BoolVar(&verboseFlag, "verbose", false, "Print more verbose output")
 	flag.BoolVar(&debugFlag, "debug", false, "Print verbose and add messages for skipped files")
 	flag.BoolVar(&versionFlag, "version", false, "Print the version number")
