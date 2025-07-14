@@ -40,7 +40,7 @@ import (
 	_ "net/http/pprof"
 )
 
-const version string = "0.0.3"
+const version string = "0.0.4"
 
 // The string below will be replaced during build time using
 // -ldflags "-X main.compileDate=`date -u +.%Y%m%d.%H%M%S"`"
@@ -72,6 +72,7 @@ var (
 	methodFlag       string
 	verboseFlag      bool
 	versionFlag      bool
+	quietFlag        bool
 	outputFolderFlag string
 	outputFormatFlag string
 	debugFlag        bool
@@ -260,7 +261,7 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 	}
 
 	// keep track of the patients, studies and series but only if we use verbose mode
-	if verboseFlag {
+	if !quietFlag {
 		UpdateCounter(&listPatients, dicomVals[tag.PatientID])
 		UpdateCounter(&listStudies, dicomVals[tag.StudyInstanceUID])
 		UpdateCounter(&listSeries, dicomVals[tag.SeriesInstanceUID])
@@ -358,7 +359,7 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 		return err
 	}
 
-	if verboseFlag && (counter+counterError)%100 == 0 {
+	if !quietFlag && (counter+counterError)%100 == 0 {
 		numPatients := 0
 		listPatients.Range(func(key, value interface{}) bool {
 			numPatients = numPatients + 1
@@ -486,7 +487,7 @@ func sort(source_paths []string, dest_path string) int32 {
 	bytesWritten = 0
 	ProcessDataPath = dest_path
 	startTime = time.Now()
-	if verboseFlag {
+	if !quietFlag {
 		fmt.Printf("\n")
 	}
 	for _, source_path := range source_paths {
@@ -502,7 +503,7 @@ func sort(source_paths []string, dest_path string) int32 {
 			}*/
 		}
 	}
-	if verboseFlag {
+	if !quietFlag {
 		sizeStr := ""
 		if methodFlag != "link" {
 			sizeStr = fmt.Sprintf("[%s]", FormatFileSize(float64(bytesWritten), 1024.0))
@@ -674,8 +675,8 @@ func main() {
 	flag.Usage = func() {
 		fmt.Fprintf(os.Stderr, "\n\033[1mNAME\033[0m\n\t%s - sort DICOM files into folders\n\n", os.Args[0])
 		fmt.Fprintf(os.Stderr, "\033[1mUSAGE\033[0m\n\t%s (input folder) [(input folder N) ...] (output folder)\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "\n\033[1mDESCRIPTION\033[0m\n\t\033[1msdcm\033[0m transfers DICOM files from one location to another. The output directory tree structure is based on DICOM meta-data.\n")
-		fmt.Fprintf(os.Stderr, "\tAdditionally to named DICOM tags a numeric '{counter}' variable can be used. The argument to folder will be interpreted\n")
+		fmt.Fprintf(os.Stderr, "\n\033[1mDESCRIPTION\033[0m\n\t\033[1msdcm\033[0m copies DICOM files from one directory to another. The output directory tree structure is user defined and based on DICOM meta-data.\n")
+		fmt.Fprintf(os.Stderr, "\tAdditionally to named DICOM tags a numeric '{counter}' variable can be used. The argument to option 'folder' will be interpreted\n")
 		fmt.Fprintf(os.Stderr, "\tas a filename if it starts with an '@'-character. The file may contain the folder path as text.\n\n")
 		fmt.Fprintf(os.Stderr, "\t\t# Example format path file for sdcm\n")
 		fmt.Fprintf(os.Stderr, "\t\t# Text after a '#' character is ignored. Spaces are also ignored.\n")
@@ -701,15 +702,16 @@ func main() {
 	log.SetFlags(0)
 	log.SetOutput(io.Discard /*ioutil.Discard*/)
 
-	flag.IntVar(&num_workers, "cpus", int(runtime.GOMAXPROCS(0)), "Number of worker threads used for processing")
-	flag.StringVar(&methodFlag, "method", "copy", "Create symbolic links (faster) or copy files. If dirs_only is used no files are created [copy|link|dirs_only]")
+	flag.IntVar(&num_workers, "cpus", int(runtime.GOMAXPROCS(0)), "number of worker threads used for processing")
+	flag.StringVar(&methodFlag, "method", "copy", "create either symbolic links (faster) or copy files. If dirs_only is used no files are created [copy|link|dirs_only]")
 	defaultFolderFormat := "{PatientID}_{PatientName}/{StudyDate}_{StudyTime}/{SeriesNumber}_{SeriesDescription}/{Modality}_{SOPInstanceUID}.dcm"
-	flag.StringVar(&outputFolderFlag, "folder", defaultFolderFormat, "Specify the requested output folder path\n")
-	flag.StringVar(&outputFormatFlag, "format", defaultFolderFormat, "Same as -folder\n")
-	flag.BoolVar(&verboseFlag, "verbose", false, "Print more verbose output")
-	flag.BoolVar(&debugFlag, "debug", false, "Print verbose and add messages for skipped files")
-	flag.BoolVar(&versionFlag, "version", false, "Print the version number")
-	flag.StringVar(&preserveFlag, "preserve", "", "Preserves the timestamp if called with '-preserve timestamp'. This option only works together with '-method copy'")
+	flag.StringVar(&outputFolderFlag, "folder", defaultFolderFormat, "specify the requested output folder path\n")
+	flag.StringVar(&outputFormatFlag, "format", defaultFolderFormat, "same as -folder\n")
+	flag.BoolVar(&verboseFlag, "verbose", false, "print more verbose output")
+	flag.BoolVar(&quietFlag, "quiet", false, "do not print anything")
+	flag.BoolVar(&debugFlag, "debug", false, "print verbose and add messages for skipped files")
+	flag.BoolVar(&versionFlag, "version", false, "print the version number")
+	flag.StringVar(&preserveFlag, "preserve", "", "preserves the timestamp if called with '-preserve timestamp'. This option only works together with '-method copy'")
 	flag.Parse()
 
 	if outputFormatFlag != "" {
@@ -741,6 +743,8 @@ func main() {
 			e = strings.Split(e, "==")[0]
 		}
 
+		// TODO: we should allow tags specified by group and element as well
+		// e.g. {0010,0020} for PatientID
 		if t, err := tag.FindByName(e); err == nil {
 			dicomTags[t.Tag] = matches[a]
 		} else {
@@ -749,10 +753,10 @@ func main() {
 	}
 
 	if debugFlag {
-		verboseFlag = true
+		quietFlag = false
 	}
 
-	if verboseFlag {
+	if !quietFlag {
 		// add three tags we need for book keeping
 		dicomTags[tag.PatientID] = "{PatientID}"
 		dicomTags[tag.StudyInstanceUID] = "{StudyInstanceUID}"
@@ -827,12 +831,12 @@ func main() {
 		num_workers = 1
 	}
 
-	if verboseFlag {
+	if !quietFlag {
 		fmt.Printf("Parse %v...\n", input)
 	}
 	// all the work is done here
 	numFiles := sort(input, pos_args[len(pos_args)-1])
-	if verboseFlag {
+	if !quietFlag {
 		s := "s"
 		if numFiles == 1 {
 			s = ""
