@@ -5,15 +5,15 @@
 Usage:
 
 ```bash
-sdcm -verbose -method link <input folder> <output folder>
+sdcm -method link <input folder> <output folder>
 ```
 
-The output folder should not exist, or be empty.
+The output folder should not exist, or be empty (see option -brave).
 
 Here an example processing run with a generated output directory tree with studies, series and (symbolic) links to the DICOM images:
 
 ```bash
-> sdcm -verbose -method link /Volumes/T7/data/LIDC-IDRI/LIDC-IDRI /tmp/bbb
+> sdcm -method link /Volumes/T7/data/LIDC-IDRI/LIDC-IDRI /tmp/bbb
 Parse /Volumes/T7/data/LIDC-IDRI/LIDC-IDRI...
 ⣯ 244,600 [988 files / s] P1010 S1308 S1398
 done in 4m7.765658167s
@@ -57,10 +57,10 @@ cp -Lr <output folder>/input/<patient>/<study>/<series> /somewhere/else/
 The default (option '-method copy') is slower but generates a physical copy of files in the output folder. If you are only interested in a single series use '-method link' followed by 'cp -L'.
 
 > [!NOTE]
-> Warning: Scanning large non-DICOM files takes a lot of time until it fails. To reduce that scantime sdcm uses a heuristic based on filenames. It assumes that DICOM files either do not have an extension or have the ".dcm" extension. All other files are ignored. This implies that sdcm will ignore files with an extension like ".dcm.bak".
+> Warning: Scanning large non-DICOM files takes a lot of time until it fails. To reduce that scantime sdcm uses a heuristic based on filenames. It assumes that DICOM files either do not have an extension or have the ".dcm" extension. All other files are ignored. This implies that sdcm will ignore files with an extension like ".dcm.bak". You can disable this behavior, scan all files with option -thorrough.
 
 
-During processing with '-verbose' the command line will show:
+During processing the command line will show:
 
 ```bash
 ⢿ 42,982 [118 files / s] P 12,102 S 12,111 S 12,374 [S 134,118]
@@ -81,8 +81,7 @@ The default output folder structure combines patient, study and series level inf
 Default (made explicit):
 
 ```bash
-sdcm -verbose \
-     -method link \
+sdcm -method link \
      -folder "{PatientID}_{PatientName}/{StudyDate}_{StudyTime}_{StudyInstanceUID}/{SeriesNumber}_{SeriesDescription}_{SeriesInstanceUID}/{Modality}_{SOPInstanceUID}.dcm" \
      <input folder> <output folder>
 ```
@@ -105,11 +104,10 @@ sdcm -verbose \
      <input folder> <output folder>
 ```
 
-No data (-method dirs_only) and only a single level with series descriptions:
+Only create folders (-method dirs_only) and only a single level with series descriptions:
 
 ```bash
-sdcm -verbose \
-     -method dirs_only \
+sdcm -method dirs_only \
      -format "{SeriesDescription}" \
      <input folder> <output folder>
 ```
@@ -118,7 +116,7 @@ The folder option for future runs of sdcm can also be set as an environment vari
 
 ```bash
 SDCM_FOLDER_PATH="{PatientID}/{StudyDate}/{SeriesNumber}_{SeriesDescription}/{Modality}_{counter}.dcm"
-sdcm -verbose -method link <input folder> <output folder>
+sdcm -method link <input folder> <output folder>
 ```
 
 Store a folder path in an external text file. Such a file can be used on the command line if the value of '-folder' starts with a '@'-character (e.g. '-folder @my_folder_options_file.txt').
@@ -127,7 +125,7 @@ Store a folder path in an external text file. Such a file can be used on the com
 # Example format path file for sdcm
 # Text after a '#' character is ignored. Spaces are also ignored.
 # Uses empty strings if tags have no value or do not exist.
-# Use this template with:
+# Use this template (save as default_format) with:
 #     sdcm -format @default_format <input folder> <output folder>
 
 {PatientID}_{PatientName}/
@@ -189,69 +187,76 @@ This should print the help message:
 
 ```
 NAME
-	sdcm - sort DICOM files into folders
+        sdcm - sort DICOM files into folders
 
 USAGE
-	./build/macos-arm64/sdcm (input folder) [(input folder N) ...] (output folder)
+        sdcm (input folder) [(input folder N) ...] (output folder)
 
 DESCRIPTION
-	sdcm transfers DICOM files from one location to another. The output directory tree structure is based on DICOM meta-data.
-	Additionally to named DICOM tags a numeric '{counter}' variable can be used. The argument to folder will be interpreted
-	as a filename if it starts with an '@'-character. The file may contain the folder path as text.
+        sdcm copies DICOM files from one directory to another. The output directory tree structure is user defined and based on DICOM meta-data.
+        Additionally to named DICOM tags a numeric '{counter}' variable can be used. The argument to option 'folder' will be interpreted
+        as a filename if it starts with an '@'-character. The file may contain the folder path as text.
 
-		# Example format path file for sdcm
-		# Text after a '#' character is ignored. Spaces are also ignored.
-		# Uses empty strings if tags have no value or do not exist.
-		# Use this template with:
-		#     sdcm -format @default_format (input folder) (output folder)
-	
-		{PatientID}_{PatientName}/
-			{StudyDate}_{StudyTime}/
-				{SeriesNumber}_{SeriesDescription}/
-					{Modality}_{SOPInstanceUID}.dcm
+                # Example format path file for sdcm
+                # Text after a '#' character is ignored. Spaces are also ignored.
+                # Uses empty strings if tags have no value or do not exist.
+                # Use this template with (save as default_format):
+                #     sdcm -format @default_format (input folder) (output folder)
 
-	To filter for specific DICOM files add a regular expression to the DICOM tag after '=='.
+                {PatientID}_{PatientName}/
+                        {StudyDate}_{StudyTime}/
+                                {SeriesNumber}_{SeriesDescription}/
+                                        {Modality}_{SOPInstanceUID}.dcm
 
-	Example:
-		{Modality==(MR|CT)}
+        To filter for specific DICOM files add a regular expression to the DICOM tag after '=='.
+
+        Example:
+                {Modality==(MR|CT)}
 
 OPTIONS
-  -cpus int
-    	Specify the number of worker threads used for processing (default 16)
+  -brave
+        write files even if the output folder already exists and is not empty
+  -cpus
+        number of worker threads used for processing (default 16)
   -debug
-    	Print verbose and add messages for skipped files
-  -folder string
-    	Specify the requested output folder path.
-    	 (default "{PatientID}_{PatientName}/{StudyDate}_{StudyTime}/{SeriesNumber}_{SeriesDescription}/{Modality}_{SOPInstanceUID}.dcm")
-  -format string
-    	Same as -folder
-    	
-  -method string
-    	Create symbolic links (faster) or copy files. If dirs_only is used no files are created [copy|link|dirs_only] (default "copy")
-  -preserve string
-    	Preserves the timestamp if called with '-preserve timestamp'. This option only works together with '-method copy'
+        print verbose and add messages for skipped files
+  -folder
+        specify the requested output folder path
+         (default {PatientID}_{PatientName}/{StudyDate}_{StudyTime}/{SeriesNumber}_{SeriesDescription}/{Modality}_{SOPInstanceUID}.dcm)
+  -format
+        same as -folder
+         (default {PatientID}_{PatientName}/{StudyDate}_{StudyTime}/{SeriesNumber}_{SeriesDescription}/{Modality}_{SOPInstanceUID}.dcm)
+  -method
+        create either symbolic links (faster) or copy files. If dirs_only is used no files are created [copy|link|dirs_only] (default copy)
+  -preserve
+        preserves the timestamp if called with '-preserve timestamp'. This option only works together with '-method copy'
+  -quiet
+        do not print anything
+  -thorough
+        do not filter files by extension, process all files (slower)
   -verbose
-    	Print more verbose output
+        print more verbose output
   -version
-    	Print the version number
+        print the version number
 
 ENVIRONMENT
-	The following environment variables affect the execution of sdcm:
+        The following environment variables affect the execution of sdcm:
 
-	SDCM_FOLDER_PATH
-		The default value for option -folder.
+        SDCM_FOLDER_PATH
+                The default value for option -folder.
+
 ```
 
 ### Notes
 
-Shells like zsh can understand the help (--help) pages produced by programs like sdcm. You can teach your shell the options of sdcm with
+Shells like zsh can understand the help (--help) page produced by programs like sdcm. You can teach your shell the options of sdcm with
 
 
 ```bash
-compdef _gnu_generic 
+compdef _gnu_generic sdcm
 ```
 
-If you type 'sdcm -<TAB>' the shell can show you the options available.
+If you type 'sdcm -<TAB>' the shell can show you the options available. Add the above compdef to your ~/.zshrc.
 
 
 ### Failure modes

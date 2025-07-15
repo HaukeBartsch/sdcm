@@ -75,6 +75,8 @@ var (
 	quietFlag        bool
 	outputFolderFlag string
 	outputFormatFlag string
+	thoroughFlag     bool
+	braveFlag        bool
 	debugFlag        bool
 	num_workers      int
 	preserveFlag     string
@@ -383,11 +385,11 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 	//  - files without an extension, or
 	//  - files with .dcm as extension
 	//  - files with an extension that contains only numbers (files named by UID)
-	if filepath.Ext(path) != "" {
+	if filepath.Ext(path) != "" && !thoroughFlag {
 		if strings.ToLower(filepath.Ext(path)) != ".dcm" && !isNum(filepath.Ext(path)[1:]) && len(filepath.Ext(path)) < 5 {
 			atomic.AddInt32(&counterError, 1)
 			if debugFlag {
-				fmt.Printf("[%d] ignore file due to file extension: \"%s\"\n\n", counterError, path)
+				fmt.Printf("[%d] ignore file due to file extension: \"%s\"\n", counterError, path)
 			}
 			return nil // ignore this file
 		}
@@ -681,7 +683,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\t\t# Example format path file for sdcm\n")
 		fmt.Fprintf(os.Stderr, "\t\t# Text after a '#' character is ignored. Spaces are also ignored.\n")
 		fmt.Fprintf(os.Stderr, "\t\t# Uses empty strings if tags have no value or do not exist.\n")
-		fmt.Fprintf(os.Stderr, "\t\t# Use this template with:\n")
+		fmt.Fprintf(os.Stderr, "\t\t# Use this template with (save as default_format):\n")
 		fmt.Fprintf(os.Stderr, "\t\t#     sdcm -format @default_format (input folder) (output folder)\n")
 		fmt.Fprintf(os.Stderr, "\t\n")
 		fmt.Fprintf(os.Stderr, "\t\t{PatientID}_{PatientName}/\n")
@@ -709,6 +711,8 @@ func main() {
 	flag.StringVar(&outputFormatFlag, "format", defaultFolderFormat, "same as -folder\n")
 	flag.BoolVar(&verboseFlag, "verbose", false, "print more verbose output")
 	flag.BoolVar(&quietFlag, "quiet", false, "do not print anything")
+	flag.BoolVar(&thoroughFlag, "thorough", false, "do not filter files by extension, process all files (slower)")
+	flag.BoolVar(&braveFlag, "brave", false, "write files even if the output folder already exists and is not empty")
 	flag.BoolVar(&debugFlag, "debug", false, "print verbose and add messages for skipped files")
 	flag.BoolVar(&versionFlag, "version", false, "print the version number")
 	flag.StringVar(&preserveFlag, "preserve", "", "preserves the timestamp if called with '-preserve timestamp'. This option only works together with '-method copy'")
@@ -821,8 +825,8 @@ func main() {
 	// we will error out of the output path already exists and is not empty
 	if _, err := os.Stat(pos_args[len(pos_args)-1]); err == nil {
 		isEmpty, _ := IsEmpty(pos_args[len(pos_args)-1])
-		if !isEmpty {
-			exitGracefully(fmt.Errorf("output path %s already exists, cowardly refusing to continue. Clear its content or specify a new directory", pos_args[len(pos_args)-1]))
+		if !isEmpty && !braveFlag {
+			exitGracefully(fmt.Errorf("output path %s already exists, cowardly refusing to continue. Clear its content, specify a new directory or be -brave", pos_args[len(pos_args)-1]))
 		}
 	}
 
