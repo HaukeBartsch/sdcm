@@ -5,7 +5,7 @@
 Usage:
 
 ```bash
-sdcm -method link <input folder> <output folder>
+sdcm -method link (input folder) [(input folder N) ...] (output folder)
 ```
 
 The output folder should not exist, or be empty (see option -brave).
@@ -89,8 +89,7 @@ sdcm -method link \
 Simple folders:
 
 ```bash
-sdcm -verbose \
-     -method link \
+sdcm -method link \
      -folder "{PatientID}/{SeriesNumber}_{SeriesDescription}/{Modality}_{counter}.dcm" \
      <input folder> <output folder>
 ```
@@ -98,8 +97,7 @@ sdcm -verbose \
 BIDS-like folders:
 
 ```bash
-sdcm -verbose \
-     -method link \
+sdcm -method link \
      -folder "ProjectX/sub-{PatientID}/ses-{StudyDate}_{StudyTime}/{SeriesNumber}_{SeriesDescription}/{Modality}_{counter}.dcm" \
      <input folder> <output folder>
 ```
@@ -215,7 +213,7 @@ DESCRIPTION
 
 OPTIONS
   -brave
-        write files even if the output folder already exists and is not empty
+        write files even if the output folder already exists and it is not empty
   -cpus
         number of worker threads used for processing (default 16)
   -debug
@@ -256,7 +254,7 @@ Shells like zsh can understand the help (--help) page produced by programs like 
 compdef _gnu_generic sdcm
 ```
 
-If you type 'sdcm -<TAB>' the shell can show you the options available. Add the above compdef to your ~/.zshrc.
+If you type 'sdcm -<TAB>' the shell can show you the options available. Add the above compdef line to your ~/.zshrc.
 
 
 ### Failure modes
@@ -271,4 +269,6 @@ procedure of your DICOM data. Fix that anonymization process and start again.
 > [!NOTE]
 > Individual DICOM files depend on each others meta-data. Id values have to agree on the study and series level to correctly encode that images belong to a volume. A study is usually a single scanning event, a series is a subset of the files from a study, for example all files that belong to the same volume. A pseudonymization procedure can try to change these study and series level id's. If it tries to do this it must ensure that the generated ids follow the same logic of study and series. All DICOM files that belong to the same study need the same id (StudyInstanceUID). All DICOM files that belong to the same series/volume need the same new series id (SeriesInstanceUID). Using your anonymizer wrongly - e.g. performing pseudonymization of ids individually on each DICOM file will destroy the assignment of individual images to series and studies. Such a broken collection of DICOM files results in many folders, one for each image.
 
-The output folder does not contain DICOM files? Using "-method link" the output folder will not contain the files from the input but pointer files (symbolic links) only. Only on the same system you can use these output files directly. If you are planning to send the DICOM files to some other person or system you should either remove "-method link" and run the sorting again or use a tool that resolves symbolic links (e.g. 'cp -Lr' above).
+The output folder does not contain DICOM files? Using "-method link" the output folder will contain pointer files (symbolic links) only. Only on the same system you can use these output files directly. If you are planning to send the DICOM files to another system use "-method copy". Or, link and resolves the symbolic links (e.g. 'cp -Lr' above).
+
+Copies of DICOM files can appear in the input directories. For example a file A.dcm might have a A.dcm.bak file next to it with some tags changed. Copies of files can also appear if you use a '-folder' option that generates the same name for different input files. SDCM will try to resolve this by making the output file names unique (adding _001 etc.). You can show a message with -verbose for such copies.

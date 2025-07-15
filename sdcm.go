@@ -304,6 +304,10 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 		//outputPathFileName := fmt.Sprintf("%s/%s_%03d.dcm", outputPath, SOPInstanceUID, c)
 		_, err = os.Stat(outputPathFileName)
 	}
+	if verboseFlag && c != 0 {
+		fmt.Printf("[%d] make file name unique: \"%s\"\n\n", counterError, outputPathFileName)
+	}
+
 	var bw int64 = 0
 	err = nil
 	if methodFlag == "copy" {
@@ -337,7 +341,7 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 		os.MkdirAll(opfn, os.ModePerm)
 	} else {
 		// instead of copy we assume we want a symbolic link
-		exitGracefully(fmt.Errorf("unknown option \"%s\" for method flag, we support only \"copy\" (default) and \"link\"", methodFlag))
+		exitGracefully(fmt.Errorf("unknown option \"%s\" for method flag, we support only \"copy\" (default), \"link\" and \"dirs_only\"", methodFlag))
 	}
 	if err != nil {
 		fmt.Println(err)
@@ -385,7 +389,7 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 	//  - files without an extension, or
 	//  - files with .dcm as extension
 	//  - files with an extension that contains only numbers (files named by UID)
-	if filepath.Ext(path) != "" && !thoroughFlag {
+	if !thoroughFlag && filepath.Ext(path) != "" {
 		if strings.ToLower(filepath.Ext(path)) != ".dcm" && !isNum(filepath.Ext(path)[1:]) && len(filepath.Ext(path)) < 5 {
 			atomic.AddInt32(&counterError, 1)
 			if debugFlag {
@@ -712,7 +716,7 @@ func main() {
 	flag.BoolVar(&verboseFlag, "verbose", false, "print more verbose output")
 	flag.BoolVar(&quietFlag, "quiet", false, "do not print anything")
 	flag.BoolVar(&thoroughFlag, "thorough", false, "do not filter files by extension, process all files (slower)")
-	flag.BoolVar(&braveFlag, "brave", false, "write files even if the output folder already exists and is not empty")
+	flag.BoolVar(&braveFlag, "brave", false, "write files even if the output folder already exists and it is not empty")
 	flag.BoolVar(&debugFlag, "debug", false, "print verbose and add messages for skipped files")
 	flag.BoolVar(&versionFlag, "version", false, "print the version number")
 	flag.StringVar(&preserveFlag, "preserve", "", "preserves the timestamp if called with '-preserve timestamp'. This option only works together with '-method copy'")
