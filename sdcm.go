@@ -61,6 +61,7 @@ var listStudies sync.Map
 var listSeries sync.Map
 var dicomTags map[tag.Tag]string
 var preserve map[string]bool
+var old_spinner_c int = 0
 
 var fmt_local *message.Printer
 
@@ -365,7 +366,9 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 		return err
 	}
 
-	if !quietFlag && (counter+counterError)%100 == 0 {
+	// print progress every second at least
+	spinner_c = int(math.Round(time.Since(startTime).Seconds()))
+	if !quietFlag && ((counter+counterError)%100 == 0) || (spinner_c != old_spinner_c) {
 		numPatients := 0
 		listPatients.Range(func(key, value interface{}) bool {
 			numPatients = numPatients + 1
@@ -381,9 +384,9 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 			numSeries = numSeries + 1
 			return true
 		})
-		spinner_c = int(math.Round(time.Since(startTime).Seconds()))
 		fmt_local.Printf("\033[A\033[2K\033[94;49m%s%d\033[37m [%.0f files / s] P %d S %d S %d [S %d]\033[39m\033[49m\n", spinner[(spinner_c)%len(spinner)], counter, (float64(counter))/time.Since(startTime).Seconds(), numPatients, numStudies, numSeries, counterError)
 	}
+	old_spinner_c = spinner_c
 
 	// we can filter out files that take a long time if we allow only
 	//  - files without an extension, or
