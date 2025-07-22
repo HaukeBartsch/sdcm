@@ -878,7 +878,11 @@ func main() {
 							numSeries = numSeries + 1
 							return true
 						})
-						fmt_local.Printf("\033[A\033[2K\033[94;49m%s%d\033[37m [%.0f files / s] P %d S %d S %d [S %d]\033[39m\033[49m\n", spinner[(spinner_c)%len(spinner)], counter, (float64(counter))/time.Since(startTime).Seconds(), numPatients, numStudies, numSeries, counterError)
+						sizeStr := ""
+						if methodFlag != "link" {
+							sizeStr = fmt.Sprintf("%s, ", FormatFileSize(float64(bytesWritten), 1024.0))
+						}
+						fmt_local.Printf("\033[A\033[2K\033[94;49m%s%d\033[37m [%s%.0f files / s] P %d S %d S %d [S %d]\033[39m\033[49m\n", spinner[(spinner_c)%len(spinner)], counter, sizeStr, (float64(counter))/time.Since(startTime).Seconds(), numPatients, numStudies, numSeries, counterError)
 					}
 				case <-done:
 					return
