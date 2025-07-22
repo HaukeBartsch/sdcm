@@ -821,8 +821,8 @@ func main() {
 	//own_name = os.Args[0]
 
 	if len(os.Args) < 3 {
-		flag.Usage()
-		//fmt.Println("Usage: <input path 1> [<input path N>] <output path>")
+		//flag.Usage()
+		fmt.Fprintln(os.Stderr, "SDCM - sort DICOM files into folders\nUSAGE: sdcm (input folder) [(input folder N) ...] (output folder)")
 		os.Exit(-1)
 	}
 	var input []string
