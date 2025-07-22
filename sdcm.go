@@ -17,6 +17,7 @@ import (
 	"reflect"
 	"regexp"
 	"runtime"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -60,6 +61,8 @@ var listPatients sync.Map
 var listStudies sync.Map
 var listSeries sync.Map
 var listStructure = make(map[string][]string, 0) // map of SeriesInstanceUIDs of [PatientID, StudyDate, StudyInstanceUID, Modality]
+var modalities = make(map[string]int, 0)
+
 var dicomTags map[tag.Tag]string
 var preserve map[string]bool
 var old_spinner_c int = 0
@@ -329,6 +332,7 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 			}
 		}
 	} else if methodFlag == "link" {
+		// TODO: this can fail, we test for the file above but here some time went by
 		if err = os.Symlink(in_file, outputPathFileName); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not create symlink %s for %s, %s\n", in_file, outputPathFileName, err)
 		}
@@ -486,7 +490,7 @@ func FormatFileSize(s float64, base float64) string {
 	return fmt.Sprintf(f, s, sizes[i])
 }
 
-func sort(source_paths []string, dest_path string) int32 {
+func sort_dicoms(source_paths []string, dest_path string) int32 {
 	destination_path := dest_path
 
 	if _, err := os.Stat(destination_path); os.IsNotExist(err) {
@@ -848,7 +852,7 @@ func main() {
 	}
 
 	if !quietFlag {
-		fmt.Printf("Parse %v...\n", input)
+		fmt.Printf("Parse %v ...\n", input)
 	}
 
 	// print output every couple of milliseconds
@@ -882,7 +886,28 @@ func main() {
 						if methodFlag != "link" {
 							sizeStr = fmt.Sprintf("%s, ", FormatFileSize(float64(bytesWritten), 1024.0))
 						}
-						fmt_local.Printf("\033[A\033[2K\033[94;49m%s%d\033[37m [%s%.0f files / s] P %d S %d S %d [S %d]\033[39m\033[49m\n", spinner[(spinner_c)%len(spinner)], counter, sizeStr, (float64(counter))/time.Since(startTime).Seconds(), numPatients, numStudies, numSeries, counterError)
+						// go to beginning of line, clear the line and change color, print the spinner and other information
+						fmt_local.Printf("\033[1F\033[2K\033[94;49m%s%d\033[37m [%s%.0f files / s] P %d S %d S %d [S %d]\033[39m\033[49m", spinner[(spinner_c)%len(spinner)], counter, sizeStr, (float64(counter))/time.Since(startTime).Seconds(), numPatients, numStudies, numSeries, counterError)
+
+						// compute number of modalities from listStructure
+						var mods []string
+						// we cannot iterate over this map because its not thread-safe, written in listStructuresChan
+						mo := modalities // does this help with the thread safety?
+						for m := range mo {
+							mods = append(mods, m)
+						}
+						//sort.Strings(mods)
+						sort.Slice(mods[:], func(i, j int) bool {
+							if mo[mods[i]] == mo[mods[j]] {
+								// sort by name
+								return mods[i] < mods[j]
+							}
+							return mo[mods[i]] > mo[mods[j]]
+						})
+						for i := range mods {
+							mods[i] = fmt_local.Sprintf("\033[42m %s %d \033[49m", mods[i], mo[mods[i]])
+						}
+						fmt_local.Printf("\033[1E\033[2K %s", strings.Join(mods, " "))
 					}
 				case <-done:
 					return
@@ -896,13 +921,20 @@ func main() {
 		go func() {
 			for entry := range listStructuresChan {
 				SeriesInstanceUID := entry[3]
-				listStructure[SeriesInstanceUID] = []string{entry[0], entry[1], entry[2], entry[4]}
+				if _, ok := listStructure[SeriesInstanceUID]; !ok {
+					listStructure[SeriesInstanceUID] = []string{entry[0], entry[1], entry[2], entry[4]}
+					if _, ok := modalities[entry[4]]; !ok {
+						modalities[entry[4]] = 1 // store the modality
+					} else {
+						modalities[entry[4]]++ // increment the count
+					}
+				}
 			}
 		}()
 	}
 
 	// all the work is done here
-	numFiles := sort(input, pos_args[len(pos_args)-1])
+	numFiles := sort_dicoms(input, pos_args[len(pos_args)-1])
 
 	if !quietFlag {
 		close(listStructuresChan) // close the channel to signal that we are done
