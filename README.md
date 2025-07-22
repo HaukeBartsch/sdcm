@@ -251,10 +251,17 @@ Shells like zsh can understand the help (--help) page produced by programs like 
 
 
 ```bash
+# store in ~/.zshrc
 compdef _gnu_generic sdcm
 ```
 
 If you type 'sdcm -<TAB>' the shell can show you the options available. Add the above compdef line to your ~/.zshrc.
+
+There is more detailed output about skipped files in debug mode. Create a transcript of file that are ignored with
+
+```bash
+sdcm -debug <input> <output> 2>log_of_messages.txt
+```
 
 
 ### Failure modes
