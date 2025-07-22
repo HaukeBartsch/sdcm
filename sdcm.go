@@ -59,9 +59,12 @@ var spinner = []string{"⣾ ", "⣽ ", "⣻ ", "⢿ ", "⡿ ", "⣟ ", "⣯ ", "
 var listPatients sync.Map
 var listStudies sync.Map
 var listSeries sync.Map
+var listStructure = make(map[string][]string, 0) // map of SeriesInstanceUIDs of [PatientID, StudyDate, StudyInstanceUID, Modality]
 var dicomTags map[tag.Tag]string
 var preserve map[string]bool
 var old_spinner_c int = 0
+
+var listStructuresChan = make(chan []string, 1000)
 
 var fmt_local *message.Printer
 
@@ -203,7 +206,7 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 			// skip MediaStorageDirectoryStorage
 			atomic.AddInt32(&counterError, 1)
 			if debugFlag {
-				fmt.Printf("[%d] ignore DICOMDIR file: \"%s\"\n\n", counterError, path)
+				fmt.Fprintf(os.Stderr, "[%d] ignore DICOMDIR file: \"%s\"\n\n", counterError, path)
 			}
 			return nil
 		}
@@ -258,7 +261,7 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 	if skipThisFile {
 		atomic.AddInt32(&counterError, 1)
 		if debugFlag {
-			fmt.Printf("[%d] ignore file, cannot read as DICOM: \"%s\"\n\n", counterError, path)
+			fmt.Fprintf(os.Stderr, "[%d] ignore file, cannot read as DICOM: \"%s\"\n\n", counterError, path)
 		}
 		return nil
 	}
@@ -268,6 +271,8 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 		UpdateCounter(&listPatients, dicomVals[tag.PatientID])
 		UpdateCounter(&listStudies, dicomVals[tag.StudyInstanceUID])
 		UpdateCounter(&listSeries, dicomVals[tag.SeriesInstanceUID])
+		// should be done with channels
+		listStructuresChan <- []string{dicomVals[tag.PatientID], dicomVals[tag.StudyDate], dicomVals[tag.StudyInstanceUID], dicomVals[tag.SeriesInstanceUID], dicomVals[tag.Modality]}
 	}
 
 	pps = strings.Replace(pps, "{counter}", fmt.Sprintf("%06d", counter), -1) // use the global counter
@@ -306,7 +311,7 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 		_, err = os.Stat(outputPathFileName)
 	}
 	if verboseFlag && c != 0 {
-		fmt.Printf("[%d] make file name unique: \"%s\"\n\n", counterError, outputPathFileName)
+		fmt.Fprintf(os.Stderr, "[%d] make file name unique: \"%s\"\n\n", counterError, outputPathFileName)
 	}
 
 	var bw int64 = 0
@@ -318,14 +323,14 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 		if ok {
 			t, err := times.Stat(in_file)
 			if err != nil {
-				fmt.Printf("error, could not stat the output file")
+				fmt.Fprintf(os.Stderr, "error, could not stat the output file")
 			} else {
 				os.Chtimes(outputPathFileName, t.AccessTime(), t.ModTime())
 			}
 		}
 	} else if methodFlag == "link" {
 		if err = os.Symlink(in_file, outputPathFileName); err != nil {
-			fmt.Printf("Warning: could not create symlink %s for %s, %s\n", in_file, outputPathFileName, err)
+			fmt.Fprintf(os.Stderr, "Warning: could not create symlink %s for %s, %s\n", in_file, outputPathFileName, err)
 		}
 	} else if methodFlag == "emptyfile" { // TODO: do we keep this option?
 		// don't do anything else
@@ -367,26 +372,26 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 	}
 
 	// print progress every second at least
-	spinner_c = int(math.Round(time.Since(startTime).Seconds()))
-	if !quietFlag && ((counter+counterError)%100 == 0) || (spinner_c != old_spinner_c) {
-		numPatients := 0
-		listPatients.Range(func(key, value interface{}) bool {
-			numPatients = numPatients + 1
-			return true
-		})
-		numStudies := 0
-		listStudies.Range(func(key, value interface{}) bool {
-			numStudies = numStudies + 1
-			return true
-		})
-		numSeries := 0
-		listSeries.Range(func(key, value interface{}) bool {
-			numSeries = numSeries + 1
-			return true
-		})
-		fmt_local.Printf("\033[A\033[2K\033[94;49m%s%d\033[37m [%.0f files / s] P %d S %d S %d [S %d]\033[39m\033[49m\n", spinner[(spinner_c)%len(spinner)], counter, (float64(counter))/time.Since(startTime).Seconds(), numPatients, numStudies, numSeries, counterError)
-	}
-	old_spinner_c = spinner_c
+	//spinner_c = int(math.Round(time.Since(startTime).Seconds()))
+	//if !quietFlag && ((counter+counterError)%100 == 0) || (spinner_c != old_spinner_c) {
+	//	numPatients := 0
+	//	listPatients.Range(func(key, value interface{}) bool {
+	//		numPatients = numPatients + 1
+	//		return true
+	//	})
+	//	numStudies := 0
+	//	listStudies.Range(func(key, value interface{}) bool {
+	//		numStudies = numStudies + 1
+	//		return true
+	//	})
+	//	numSeries := 0
+	//	listSeries.Range(func(key, value interface{}) bool {
+	//		numSeries = numSeries + 1
+	//		return true
+	//	})
+	//	fmt_local.Printf("\033[A\033[2K\033[94;49m%s%d\033[37m [%.0f files / s] P %d S %d S %d [S %d]\033[39m\033[49m\n", spinner[(spinner_c)%len(spinner)], counter, (float64(counter))/time.Since(startTime).Seconds(), numPatients, numStudies, numSeries, counterError)
+	//}
+	//old_spinner_c = spinner_c
 
 	// we can filter out files that take a long time if we allow only
 	//  - files without an extension, or
@@ -396,7 +401,7 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 		if strings.ToLower(filepath.Ext(path)) != ".dcm" && !isNum(filepath.Ext(path)[1:]) && len(filepath.Ext(path)) < 5 {
 			atomic.AddInt32(&counterError, 1)
 			if debugFlag {
-				fmt.Printf("[%d] ignore file due to file extension: \"%s\"\n", counterError, path)
+				fmt.Fprintf(os.Stderr, "[%d] ignore file due to file extension: \"%s\"\n", counterError, path)
 			}
 			return nil // ignore this file
 		}
@@ -456,7 +461,7 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 	} else {
 		atomic.AddInt32(&counterError, 1)
 		if debugFlag {
-			fmt.Printf("[%d] ignore file, cannot read as DICOM: \"%s\"\n\n", counterError, path)
+			fmt.Fprintf(os.Stderr, "[%d] ignore file, cannot read as DICOM: \"%s\"\n\n", counterError, path)
 		}
 	}
 
@@ -759,7 +764,7 @@ func main() {
 		if t, err := tag.FindByName(e); err == nil {
 			dicomTags[t.Tag] = matches[a]
 		} else {
-			fmt.Printf("Warning, unknown DICOM tag with name \"%s\", cannot be used as a path variable, (%s)\n", matches[a], err)
+			fmt.Fprintf(os.Stderr, "Warning, unknown DICOM tag with name \"%s\", cannot be used as a path variable, (%s)\n", matches[a], err)
 		}
 	}
 
@@ -845,8 +850,61 @@ func main() {
 	if !quietFlag {
 		fmt.Printf("Parse %v...\n", input)
 	}
+
+	// print output every couple of milliseconds
+	done := make(chan bool)
+	if !quietFlag {
+		ticker := time.NewTicker(250 * time.Millisecond)
+		defer ticker.Stop()
+		go func() {
+			for {
+				select {
+				case <-ticker.C:
+					// print progress every second at least
+					spinner_c = int(math.Round(time.Since(startTime).Seconds()))
+					if !quietFlag {
+						numPatients := 0
+						listPatients.Range(func(key, value interface{}) bool {
+							numPatients = numPatients + 1
+							return true
+						})
+						numStudies := 0
+						listStudies.Range(func(key, value interface{}) bool {
+							numStudies = numStudies + 1
+							return true
+						})
+						numSeries := 0
+						listSeries.Range(func(key, value interface{}) bool {
+							numSeries = numSeries + 1
+							return true
+						})
+						fmt_local.Printf("\033[A\033[2K\033[94;49m%s%d\033[37m [%.0f files / s] P %d S %d S %d [S %d]\033[39m\033[49m\n", spinner[(spinner_c)%len(spinner)], counter, (float64(counter))/time.Since(startTime).Seconds(), numPatients, numStudies, numSeries, counterError)
+					}
+				case <-done:
+					return
+				}
+			}
+		}()
+	}
+
+	// use a channel listStructuresChan to store global information on the parsed DICOM files
+	if !quietFlag {
+		go func() {
+			for entry := range listStructuresChan {
+				SeriesInstanceUID := entry[3]
+				listStructure[SeriesInstanceUID] = []string{entry[0], entry[1], entry[2], entry[4]}
+			}
+		}()
+	}
+
 	// all the work is done here
 	numFiles := sort(input, pos_args[len(pos_args)-1])
+
+	if !quietFlag {
+		close(listStructuresChan) // close the channel to signal that we are done
+		done <- true
+	}
+
 	if !quietFlag {
 		s := "s"
 		if numFiles == 1 {
