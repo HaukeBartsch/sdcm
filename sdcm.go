@@ -248,6 +248,14 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 				skipThisFile = true
 				break
 			}
+		} else if strings.Contains(dicomTags[t], "=") {
+			r := strings.Split(dicomTags[t], "=")[1]
+			r = strings.TrimSuffix(r, "}")
+			re := regexp.MustCompile(r)
+			if !(re.MatchString(dicomVals[t])) {
+				skipThisFile = true
+				break
+			}
 		}
 
 		if t == tag.SeriesNumber {
@@ -526,7 +534,7 @@ func sort_dicoms(source_paths []string, dest_path string) int32 {
 		if methodFlag != "link" {
 			sizeStr = fmt.Sprintf("[%s]", FormatFileSize(float64(bytesWritten), 1024.0))
 		}
-		fmt.Printf("done in %s %s\n", time.Since(startTime), sizeStr)
+		fmt.Printf("\ndone in %s %s\n", time.Since(startTime), sizeStr)
 	}
 
 	return counter
@@ -761,6 +769,8 @@ func main() {
 		// feature: if we find an == sign we use a regexp to filter, for now just extract the first part
 		if strings.Contains(e, "==") {
 			e = strings.Split(e, "==")[0]
+		} else if strings.Contains(e, "=") {
+			e = strings.Split(e, "=")[0]
 		}
 
 		// TODO: we should allow tags specified by group and element as well
