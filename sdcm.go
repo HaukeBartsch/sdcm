@@ -65,7 +65,6 @@ var modalities = make(map[string]int, 0)
 
 var dicomTags map[tag.Tag]string
 var preserve map[string]bool
-var old_spinner_c int = 0
 
 var listStructuresChan = make(chan []string, 1000)
 
@@ -74,6 +73,97 @@ var fmt_local *message.Printer
 // based on Wikipedia: / \ ? * : | " < >
 // replace characters to create a valid directory name on all systems
 var sanitizeFilenameReplacer *strings.Replacer = strings.NewReplacer("/", " ", "\\", "", "?", " ", "*", " ", ":", " ", "|", " ", "\"", " ", "<", " ", ">", " ")
+
+// known DICOM modality codes (https://www.dicomlibrary.com/dicom/modality/, https://dicom.innolitics.com/ciods/digital-x-ray-image/dx-series/00080060)
+var dicomModalityCodes = map[string]string{
+	"AR":         "Autorefraction",
+	"AS":         "Angioscopy",
+	"ASMT":       "Content Assessment Results",
+	"AU":         "Audio",
+	"BDUS":       "Bone Densitometry (ultrasound)",
+	"BI":         "Biomagnetic imaging",
+	"BMD":        "Bone Densitometry (X-Ray)",
+	"CD":         "Color flow Doppler",
+	"CF":         "Cinefluorography",
+	"CP":         "Colposcopy",
+	"CR":         "Computed Radiography",
+	"CS":         "Cystoscopy",
+	"CT":         "Computed Tomography",
+	"CTPROTOCOL": "CT Protocol Performed",
+	"DD":         "Duplex Doppler",
+	"DF":         "Digital fluoroscopy",
+	"DG":         "Diaphanography",
+	"DM":         "Digital microscopy",
+	"DMS":        "Dermoscopy",
+	"DOC":        "Document",
+	"DS":         "Digital Subtraction Angiography",
+	"DX":         "Digital Radiography",
+	"EC":         "Echocardiography",
+	"ECG":        "Electrocardiography",
+	"EMG":        "Electromyography",
+	"EOG":        "Electrooculography",
+	"EPS":        "Cardiac Electrophysiology",
+	"ES":         "Endoscopy",
+	"FA":         "Fluorescein angiography",
+	"FID":        "Fiducials",
+	"FS":         "Fundoscopy",
+	"GM":         "General Microscopy",
+	"HC":         "Hard Copy",
+	"HD":         "Hemodynamic Waveform",
+	"IO":         "Intra-Oral Radiography",
+	"IOL":        "Intraocular Lens Data",
+	"IVOCT":      "Intravascular Optical Coherence Tomography",
+	"IVUS":       "Intravascular Ultrasound",
+	"KER":        "Keratometry",
+	"KO":         "Key Object Selection",
+	"LEN":        "Lensometry",
+	"LP":         "Laparoscopy",
+	"LS":         "Laser surface scan",
+	"M3D":        "Model for 3D Manufacturing",
+	"MA":         "Magnetic resonance angiography",
+	"MG":         "Mammography",
+	"MR":         "Magnetic Resonance",
+	"MS":         "Magnetic resonance spectroscopy",
+	"NM":         "Nuclear Medicine",
+	"OAM":        "Ophthalmic Axial Measurements",
+	"OCT":        "Optical Coherence Tomography (non-Ophthalmic)",
+	"OP":         "Ophthalmic Photography",
+	"OPM":        "Ophthalmic Mapping",
+	"OPR":        "Ophthalmic Refraction",
+	"OPT":        "Ophthalmic Tomography",
+	"OPTBSV":     "Ophthalmic Tomography B-scan Volume Analysis",
+	"OPTENF":     "Ophthalmic Tomography En Face",
+	"OPV":        "Ophthalmic Visual Field",
+	"OSS":        "Optical Surface Scan",
+	"OT":         "Other",
+	"PLAN":       "Plan",
+	"PR":         "Presentation State",
+	"PT":         "Positron emission tomography - PET",
+	"PX":         "Panoramic X-Ray",
+	"REG":        "Registration",
+	"RESP":       "Respiratory Waveform",
+	"RF":         "Radio Fluoroscopy",
+	"RG":         "Radiographic imaging (conventional film/screen)",
+	"RTDOSE":     "Radiotherapy Dose",
+	"RTIMAGE":    "Radiotherapy Image",
+	"RTPLAN":     "Radiotherapy Plan",
+	"RTRECORD":   "RT Treatment Record",
+	"RTSTRUCT":   "Radiotherapy Structure Set",
+	"RWV":        "Real World Value Map",
+	"SEG":        "Segmentation",
+	"SM":         "Slide Microscopy",
+	"SMR":        "Stereometric Relationship",
+	"SR":         "SR Document",
+	"SRF":        "Subjective Refraction",
+	"ST":         "Single-photon emission computed tomography - SPECT",
+	"STAIN":      "Automated Slide Stainer",
+	"TG":         "Thermography",
+	"US":         "Ultrasound",
+	"VA":         "Visual Acuity",
+	"VF":         "Videofluorography",
+	"XA":         "X-Ray Angiography",
+	"XC":         "External-camera Photography",
+}
 
 var (
 	methodFlag       string
@@ -513,9 +603,9 @@ func sort_dicoms(source_paths []string, dest_path string) int32 {
 	bytesWritten = 0
 	ProcessDataPath = dest_path
 	startTime = time.Now()
-	if !quietFlag {
-		fmt.Printf("\n")
-	}
+	//if !quietFlag {
+	//	fmt.Printf("\n")
+	//}
 	for _, source_path := range source_paths {
 		InputDataPath = source_path
 
@@ -523,7 +613,7 @@ func sort_dicoms(source_paths []string, dest_path string) int32 {
 		cwalk.BufferSize = cwalk.NumWorkers
 		err := cwalk.WalkWithSymlinks(source_path, walkFunc)
 		if err != nil {
-			fmt.Printf("Error: (%s) %s\n", source_path, err.Error())
+			fmt.Fprintf(os.Stderr, "Error: (%s) %s\n", source_path, err.Error())
 			/*for i, errors := range err.(cwalk.WalkerErrorList).ErrorList {
 				fmt.Printf("Error [%d]: %s\n", i, errors)
 			}*/
@@ -534,7 +624,7 @@ func sort_dicoms(source_paths []string, dest_path string) int32 {
 		if methodFlag != "link" {
 			sizeStr = fmt.Sprintf("[%s]", FormatFileSize(float64(bytesWritten), 1024.0))
 		}
-		fmt.Printf("\ndone in %s %s\n", time.Since(startTime), sizeStr)
+		fmt.Printf("\n\033[2Kdone in %s %s\n", time.Since(startTime), sizeStr)
 	}
 
 	return counter
@@ -862,7 +952,7 @@ func main() {
 	}
 
 	if !quietFlag {
-		fmt.Printf("Parse %v ...\n", input)
+		fmt.Printf("Parse %v ...\n\n", input)
 	}
 
 	// print output every couple of milliseconds
@@ -897,7 +987,7 @@ func main() {
 							sizeStr = fmt.Sprintf("%s, ", FormatFileSize(float64(bytesWritten), 1024.0))
 						}
 						// go to beginning of line, clear the line and change color, print the spinner and other information
-						fmt_local.Printf("\033[1F\033[2K\033[94;49m%s%d\033[37m [%s%.0f files / s] P %d S %d S %d [S %d]\033[39m\033[49m", spinner[(spinner_c)%len(spinner)], counter, sizeStr, (float64(counter))/time.Since(startTime).Seconds(), numPatients, numStudies, numSeries, counterError)
+						fmt_local.Printf("\033[1F\033[2K\033[94;49m%s%d\033[37m [%s%.0f files / s] P %d S %d S %d [S %d]\033[39m\033[49m\n", spinner[(spinner_c)%len(spinner)], counter, sizeStr, (float64(counter))/time.Since(startTime).Seconds(), numPatients, numStudies, numSeries, counterError)
 
 						// compute number of modalities from listStructure
 						var mods []string
@@ -914,10 +1004,38 @@ func main() {
 							}
 							return mo[mods[i]] > mo[mods[j]]
 						})
+						// we want to align the output lines for each modality to a unified max length, compute the length max length first
+						var max_length int = 0
 						for i := range mods {
-							mods[i] = fmt_local.Sprintf("\033[42m %s %d \033[49m", mods[i], mo[mods[i]])
+							m := mods[i]
+							if val, ok := dicomModalityCodes[mods[i]]; ok {
+								m = val
+							}
+							mods_tmp := fmt_local.Sprintf("\033[2K\033[42m %s (%s) %d \033[49m\n", m, mods[i], mo[mods[i]])
+							if len(mods_tmp) > max_length {
+								max_length = len(mods_tmp)
+							}
 						}
-						fmt_local.Printf("\033[1E\033[2K %s", strings.Join(mods, " "))
+						// fill up to max length
+						for i := range mods {
+							m := mods[i]
+							if val, ok := dicomModalityCodes[mods[i]]; ok {
+								m = val
+							}
+							// to compute the number of missing spaces
+							mods_tmp := fmt_local.Sprintf("\033[2K\033[42m %s (%s) %d \033[49m\n", m, mods[i], mo[mods[i]])
+							// now add the spaces in the middle
+							mods[i] = fmt_local.Sprintf("\033[2K\033[42m %s (%s) %s%d \033[49m\n", m, mods[i], strings.Repeat(" ", max_length-len(mods_tmp)), mo[mods[i]])
+						}
+
+						if len(mods) > 0 {
+							fmt_local.Printf(" %s", strings.Join(mods, " "))
+						}
+						if len(mods) > 1 {
+							fmt_local.Printf("\033[%dA\033[1G", len(mods))
+						} //else {
+						//	fmt_local.Printf("\n") // go one line down
+						//}
 					}
 				case <-done:
 					return
@@ -956,6 +1074,6 @@ func main() {
 		if numFiles == 1 {
 			s = ""
 		}
-		fmt_local.Printf("✓ sorted %d file%s [%d non-DICOM files ignored or filtered]\n", numFiles, s, counterError)
+		fmt_local.Printf("\033[2K✓ sorted %d file%s [%d non-DICOM files ignored or filtered]\n", numFiles, s, counterError)
 	}
 }
