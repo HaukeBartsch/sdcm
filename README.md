@@ -257,7 +257,7 @@ compdef _gnu_generic sdcm
 
 If you type 'sdcm -<TAB>' the shell can show you the options available. Add the above compdef line to your ~/.zshrc.
 
-A list of skipped or non-DICOM files is generated in debug mode. To create a transcript of file that are ignored use
+A list of skipped or non-DICOM files is generated in debug mode. To create a transcript of files ignored use
 
 ```bash
 sdcm -debug <input> <output> 2>log.txt

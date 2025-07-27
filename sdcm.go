@@ -66,6 +66,7 @@ var modalities = make(map[string]int, 0)
 var dicomTags map[tag.Tag]string
 var preserve map[string]bool
 
+// listStructuresChan is a channel to collect patient, study, series and modality information into listStructure
 var listStructuresChan = make(chan []string, 1000)
 
 var fmt_local *message.Printer
@@ -372,7 +373,7 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 		UpdateCounter(&listPatients, dicomVals[tag.PatientID])
 		UpdateCounter(&listStudies, dicomVals[tag.StudyInstanceUID])
 		UpdateCounter(&listSeries, dicomVals[tag.SeriesInstanceUID])
-		// should be done with channels
+		// TODO: what if the variables do not exist? Does this fail?
 		listStructuresChan <- []string{dicomVals[tag.PatientID], dicomVals[tag.StudyDate], dicomVals[tag.StudyInstanceUID], dicomVals[tag.SeriesInstanceUID], dicomVals[tag.Modality]}
 	}
 
@@ -613,7 +614,7 @@ func sort_dicoms(source_paths []string, dest_path string) int32 {
 		cwalk.BufferSize = cwalk.NumWorkers
 		err := cwalk.WalkWithSymlinks(source_path, walkFunc)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: (%s) %s\n", source_path, err.Error())
+			fmt.Fprintf(os.Stderr, "Error: input directory does not exist (%s). Internal error: \"%s\", skip folder\n", source_path, err.Error())
 			/*for i, errors := range err.(cwalk.WalkerErrorList).ErrorList {
 				fmt.Printf("Error [%d]: %s\n", i, errors)
 			}*/
@@ -1031,7 +1032,7 @@ func main() {
 						if len(mods) > 0 {
 							fmt_local.Printf(" %s", strings.Join(mods, " "))
 						}
-						if len(mods) > 1 {
+						if len(mods) > 0 {
 							fmt_local.Printf("\033[%dA\033[1G", len(mods))
 						} //else {
 						//	fmt_local.Printf("\n") // go one line down
