@@ -624,7 +624,7 @@ func sort_dicoms(source_paths []string, dest_path string) int32 {
 		if methodFlag != "link" {
 			sizeStr = fmt.Sprintf("[%s]", FormatFileSize(float64(bytesWritten), 1024.0))
 		}
-		fmt.Printf("\n\033[2Kdone in %s %s\n", time.Since(startTime), sizeStr)
+		fmt.Printf("\033[2Kdone in %s %s\n", time.Since(startTime), sizeStr)
 	}
 
 	return counter
