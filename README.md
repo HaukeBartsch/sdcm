@@ -252,6 +252,8 @@ Shells like zsh can understand the help (--help) page produced by programs like 
 
 ```bash
 # store in ~/.zshrc
+autoload -Uz compinit
+compinit
 compdef _gnu_generic sdcm
 ```
 
