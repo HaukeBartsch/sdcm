@@ -413,7 +413,7 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 		//outputPathFileName := fmt.Sprintf("%s/%s_%03d.dcm", outputPath, SOPInstanceUID, c)
 		_, err = os.Stat(outputPathFileName)
 	}
-	if !quietFlag && c != 0 {
+	if debugFlag && c != 0 {
 		fmt.Fprintf(os.Stderr, "[%d] make file name unique: \"%s\"\n\n", counterError, outputPathFileName)
 	}
 
