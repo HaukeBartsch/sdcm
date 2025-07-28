@@ -62,6 +62,7 @@ var listStudies sync.Map
 var listSeries sync.Map
 var listStructure = make(map[string][]string, 0) // map of SeriesInstanceUIDs of [PatientID, StudyDate, StudyInstanceUID, Modality]
 var modalities = make(map[string]int, 0)
+var listStructureMutex sync.Mutex // mutex to protect listStructure and modalities
 
 var dicomTags map[tag.Tag]string
 var preserve map[string]bool
@@ -992,14 +993,17 @@ func main() {
 
 						// compute number of modalities from listStructure
 						var mods []string
-						// we cannot iterate over this map because its not thread-safe, written in listStructuresChan
-						mo := modalities // does this help with the thread safety?
+						mo := modalities
+						// use a mutex to protect modalities
+						listStructureMutex.Lock()
+						// we use a dedicated mutex unlick at the end of this section
+						//defer listStructureMutex.Unlock()
+
 						for m := range mo {
 							mods = append(mods, m)
 						}
-						//sort.Strings(mods)
 						sort.Slice(mods[:], func(i, j int) bool {
-							if mo[mods[i]] == mo[mods[j]] {
+							if mo[mods[i]] == mo[mods[j]] { // concurrent map read and write can happen here
 								// sort by name
 								return mods[i] < mods[j]
 							}
@@ -1028,15 +1032,12 @@ func main() {
 							// now add the spaces in the middle
 							mods[i] = fmt_local.Sprintf("\033[2K\033[42m %s (%s) %s%d \033[49m\n", m, mods[i], strings.Repeat(" ", max_length-len(mods_tmp)), mo[mods[i]])
 						}
+						listStructureMutex.Unlock()
 
 						if len(mods) > 0 {
 							fmt_local.Printf(" %s", strings.Join(mods, " "))
-						}
-						if len(mods) > 0 {
 							fmt_local.Printf("\033[%dA\033[1G", len(mods))
-						} //else {
-						//	fmt_local.Printf("\n") // go one line down
-						//}
+						}
 					}
 				case <-done:
 					return
@@ -1050,13 +1051,16 @@ func main() {
 		go func() {
 			for entry := range listStructuresChan {
 				SeriesInstanceUID := entry[3]
-				if _, ok := listStructure[SeriesInstanceUID]; !ok {
+				if _, ok := listStructure[SeriesInstanceUID]; !ok { // assumption is that every series has a unique modality
+					// use a mutex to separate write a read to listStructure and modalities together
+					listStructureMutex.Lock()
 					listStructure[SeriesInstanceUID] = []string{entry[0], entry[1], entry[2], entry[4]}
 					if _, ok := modalities[entry[4]]; !ok {
 						modalities[entry[4]] = 1 // store the modality
 					} else {
 						modalities[entry[4]]++ // increment the count
 					}
+					listStructureMutex.Unlock()
 				}
 			}
 		}()
