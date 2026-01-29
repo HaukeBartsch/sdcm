@@ -106,7 +106,7 @@ Only create folders (-method dirs_only) and only a single level with series desc
 
 ```bash
 sdcm -method dirs_only \
-     -format "{SeriesDescription}" \
+     -format "{SeriesDescription}/{counter}.dcm" \
      <input folder> <output folder>
 ```
 
