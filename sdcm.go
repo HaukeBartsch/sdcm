@@ -41,7 +41,7 @@ import (
 	_ "net/http/pprof"
 )
 
-const version string = "0.0.4"
+const version string = "0.0.5"
 
 // The string below will be replaced during build time using
 // -ldflags "-X main.compileDate=`date -u +.%Y%m%d.%H%M%S"`"
@@ -64,7 +64,13 @@ var listStructure = make(map[string][]string, 0) // map of SeriesInstanceUIDs of
 var modalities = make(map[string]int, 0)
 var listStructureMutex sync.Mutex // mutex to protect listStructure and modalities
 
-var dicomTags map[tag.Tag]string
+// TagReplacementTupel is a struct to hold a tag and its replacement string
+type TagReplacementTupel struct {
+	Key   tag.Tag
+	Value string
+}
+
+var dicomTags []TagReplacementTupel
 var preserve map[string]bool
 
 // listStructuresChan is a channel to collect patient, study, series and modality information into listStructure
@@ -309,16 +315,20 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 
 	// go through all tags we need and pull those, use a map of tag.Tag as key and string as value
 	// use together with dicomTags (tag.Tag as key and "{bla}" as value).
-	dicomVals := make(map[tag.Tag]string, 0)
-	for key := range dicomTags {
+	dicomVals := make(map[tag.Tag][]string, 0)
+	for index := range dicomTags {
+		key := dicomTags[index].Key
 		val, err = dataset.FindElementByTag(key)
 		if err == nil {
-			var vs string = dicom.MustGetStrings(val.Value)[0]
-			// this is used as a filename, we should sanitize them
-			dicomVals[key] = sanitizeFilenameReplacer.Replace(vs)
+			// this will only return the first value, for PixelSpacing for example that is not sufficient, we should change this to return an array of strings instead
+			var vs []string = dicom.MustGetStrings(val.Value)
+			dicomVals[key] = make([]string, len(vs))
+			for i, s := range vs {
+				dicomVals[key][i] = sanitizeFilenameReplacer.Replace(s)
+			}
 			// we should check if vs is a safe string for a directory name
 		} else {
-			dicomVals[key] = ""
+			dicomVals[key] = []string{""} // return an empty string ""
 		}
 	}
 
@@ -332,33 +342,63 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 	for t := range dicomVals {
 		// if we have a dicomTags[t] that contains an "==" we need to filter, only allow matching entries
 		// TODO: could be done faster if we cache the regular expressions for each tag they are needed
-		if strings.Contains(dicomTags[t], "==") {
-			r := strings.Split(dicomTags[t], "==")[1]
-			r = strings.TrimSuffix(r, "}")
-			re := regexp.MustCompile(r)
-			if !(re.MatchString(dicomVals[t])) {
-				skipThisFile = true
-				break
-			}
-		} else if strings.Contains(dicomTags[t], "=") {
-			r := strings.Split(dicomTags[t], "=")[1]
-			r = strings.TrimSuffix(r, "}")
-			re := regexp.MustCompile(r)
-			if !(re.MatchString(dicomVals[t])) {
-				skipThisFile = true
-				break
-			}
-		}
 
-		if t == tag.SeriesNumber {
-			sn, err := strconv.Atoi(dicomVals[tag.SeriesNumber])
-			if err == nil {
-				pps = strings.Replace(pps, "{SeriesNumber}", fmt.Sprintf("%03d", sn), -1)
-			} else {
-				pps = strings.Replace(pps, "{SeriesNumber}", dicomVals[tag.SeriesNumber], -1)
+		// each time a value indexed by a tag.Tag appears in dicomTags, replace it in the path
+		for index := range dicomTags {
+			if dicomTags[index].Key != t {
+				continue
 			}
-		} else {
-			pps = strings.Replace(pps, dicomTags[t], dicomVals[t], -1)
+			var stringToReplace string = dicomTags[index].Value
+
+			if strings.Contains(stringToReplace, "==") {
+				r := strings.Split(stringToReplace, "==")[1]
+				r = strings.TrimSuffix(r, "}")
+				re := regexp.MustCompile(r)
+				if !(re.MatchString(dicomVals[t][0])) { // TODO: we cannot use == and [1] at the same time here
+					skipThisFile = true
+					break
+				}
+			} else if strings.Contains(stringToReplace, "=") {
+				r := strings.Split(stringToReplace, "=")[1]
+				r = strings.TrimSuffix(r, "}")
+				re := regexp.MustCompile(r)
+				if !(re.MatchString(dicomVals[t][0])) {
+					skipThisFile = true
+					break
+				}
+			} else if strings.Contains(stringToReplace, "[") {
+				// we need to extract an array index
+				e := strings.Split(stringToReplace, "[")[0]
+				if e == "" {
+					// error out here, empty path will not be created
+					exitGracefully(fmt.Errorf("cannot create empty directory path with dirs_only option, please check your -folder/-format option"))
+				}
+				indexStr := strings.Split(strings.Split(stringToReplace, "[")[1], "]")[0]
+				// there may be spaces before the numeric value
+				indexStr = strings.TrimSpace(indexStr)
+				index, err := strconv.Atoi(indexStr)
+				if err != nil {
+					exitGracefully(fmt.Errorf("cannot convert array index %s to integer for tag %v", indexStr, t))
+				}
+				var dvs = dicomVals[t]
+				var dv string = ""
+				if index < len(dvs) {
+					dv = dvs[index]
+				}
+				pps = strings.Replace(pps, stringToReplace, dv, -1)
+				continue
+			}
+
+			if t == tag.SeriesNumber {
+				sn, err := strconv.Atoi(dicomVals[tag.SeriesNumber][0])
+				if err == nil {
+					pps = strings.Replace(pps, "{SeriesNumber}", fmt.Sprintf("%03d", sn), -1)
+				} else {
+					pps = strings.Replace(pps, "{SeriesNumber}", dicomVals[tag.SeriesNumber][0], -1)
+				}
+			} else {
+				pps = strings.Replace(pps, stringToReplace, strings.Join(dicomVals[t], "_"), -1)
+			}
 		}
 	}
 	if skipThisFile {
@@ -371,11 +411,37 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 
 	// keep track of the patients, studies and series but only if we use verbose mode
 	if !quietFlag {
-		UpdateCounter(&listPatients, dicomVals[tag.PatientID])
-		UpdateCounter(&listStudies, dicomVals[tag.StudyInstanceUID])
-		UpdateCounter(&listSeries, dicomVals[tag.SeriesInstanceUID])
+		UpdateCounter(&listPatients, dicomVals[tag.PatientID][0])
+		UpdateCounter(&listStudies, dicomVals[tag.StudyInstanceUID][0])
+		UpdateCounter(&listSeries, dicomVals[tag.SeriesInstanceUID][0])
 		// TODO: what if the variables do not exist? Does this fail?
-		listStructuresChan <- []string{dicomVals[tag.PatientID], dicomVals[tag.StudyDate], dicomVals[tag.StudyInstanceUID], dicomVals[tag.SeriesInstanceUID], dicomVals[tag.Modality]}
+		var PatientIDs []string = dicomVals[tag.PatientID]
+		var PatientID string = ""
+		if len(PatientIDs) > 0 {
+			PatientID = PatientIDs[0]
+		}
+		var StudyDates []string = dicomVals[tag.StudyDate]
+		var StudyDate string = ""
+		if len(StudyDates) > 0 {
+			StudyDate = StudyDates[0]
+		}
+		var StudyInstanceUIDs []string = dicomVals[tag.StudyInstanceUID]
+		var StudyInstanceUID string = ""
+		if len(StudyInstanceUIDs) > 0 {
+			StudyInstanceUID = StudyInstanceUIDs[0]
+		}
+		var SeriesInstanceUIDs []string = dicomVals[tag.SeriesInstanceUID]
+		var SeriesInstanceUID string = ""
+		if len(SeriesInstanceUIDs) > 0 {
+			SeriesInstanceUID = SeriesInstanceUIDs[0]
+		}
+		var Modalities []string = dicomVals[tag.Modality]
+		var Modality string = ""
+		if len(Modalities) > 0 {
+			Modality = Modalities[0]
+		}
+
+		listStructuresChan <- []string{PatientID, StudyDate, StudyInstanceUID, SeriesInstanceUID, Modality}
 	}
 
 	pps = strings.Replace(pps, "{counter}", fmt.Sprintf("%06d", counter), -1) // use the global counter
@@ -447,7 +513,12 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 	} else if methodFlag == "dirs_only" { // TODO: do we keep this option?
 		// don't do anything else
 		// remove the filename (keep the directory)
+		// this works only if we have something left after removing the filename
 		opfn := filepath.Dir(outputPathFileName)
+		if (len(opfn) == 0) || (opfn == ".") {
+			// error out here, empty path will not be created
+			fmt.Println(fmt.Errorf("cannot create an empty directory path with dirs_only option, please check your -folder/-format setting and include a directory + a filename (like {counter}.dcm) even if you only want to create directories"))
+		}
 		os.MkdirAll(opfn, os.ModePerm)
 	} else {
 		// instead of copy we assume we want a symbolic link
@@ -821,7 +892,7 @@ func main() {
 	log.SetOutput(io.Discard /*ioutil.Discard*/)
 
 	flag.IntVar(&num_workers, "cpus", int(runtime.GOMAXPROCS(0)), "number of worker threads used for processing")
-	flag.StringVar(&methodFlag, "method", "copy", "create either symbolic links (faster) or copy files. If dirs_only is used no files are created [copy|link|dirs_only]")
+	flag.StringVar(&methodFlag, "method", "copy", "create either symbolic links (faster) or copy files. If dirs_only is used no files are created [copy|link|dirs_only]. Warning: You need to specify a dummy filename like {counter}.dcm with dirs_only. The last entry in your path will not be created with dirs_only")
 	defaultFolderFormat := "{PatientID}_{PatientName}/{StudyDate}_{StudyTime}/{SeriesNumber}_{SeriesDescription}/{Modality}_{SOPInstanceUID}.dcm"
 	flag.StringVar(&outputFolderFlag, "folder", defaultFolderFormat, "specify the requested output folder path\n")
 	flag.StringVar(&outputFormatFlag, "format", defaultFolderFormat, "same as -folder\n")
@@ -849,7 +920,7 @@ func main() {
 	outputFolderFlag = translateStringOrFile(outputFolderFlag)
 
 	// try to extract the tags requested in the outputFolderFlag
-	dicomTags = make(map[tag.Tag]string, 0)
+	dicomTags = []TagReplacementTupel{}
 	re := regexp.MustCompile(`{[^{}]*}`)
 	matches := re.FindAllString(outputFolderFlag, -1)
 	for a := range matches {
@@ -863,12 +934,19 @@ func main() {
 			e = strings.Split(e, "==")[0]
 		} else if strings.Contains(e, "=") {
 			e = strings.Split(e, "=")[0]
+		} else if strings.Contains(e, "[") {
+			// for arrays we ignore everything after this first bracket, further down we need to deliver the index value
+			// this will not work, the same tag will appear several times with different indices, but it will be saved only once in dicomTags as it matches the same tag
+			e = strings.Split(e, "[")[0]
 		}
 
 		// TODO: we should allow tags specified by group and element as well
 		// e.g. {0010,0020} for PatientID
 		if t, err := tag.FindByName(e); err == nil {
-			dicomTags[t.Tag] = matches[a]
+			var tu TagReplacementTupel = TagReplacementTupel{Key: t.Tag, Value: matches[a]}
+			// do we need to check that the same pair is not already in dicomTags?
+			// could use slices.ContainsFunc here
+			dicomTags = append(dicomTags, tu)
 		} else {
 			fmt.Fprintf(os.Stderr, "Warning, unknown DICOM tag with name \"%s\", cannot be used as a path variable, (%s)\n", matches[a], err)
 		}
@@ -880,9 +958,9 @@ func main() {
 
 	if !quietFlag {
 		// add three tags we need for book keeping
-		dicomTags[tag.PatientID] = "{PatientID}"
-		dicomTags[tag.StudyInstanceUID] = "{StudyInstanceUID}"
-		dicomTags[tag.SeriesInstanceUID] = "{SeriesInstanceUID}"
+		dicomTags = append(dicomTags, TagReplacementTupel{Key: tag.PatientID, Value: "{PatientID}"})
+		dicomTags = append(dicomTags, TagReplacementTupel{Key: tag.StudyInstanceUID, Value: "{StudyInstanceUID}"})
+		dicomTags = append(dicomTags, TagReplacementTupel{Key: tag.SeriesInstanceUID, Value: "{SeriesInstanceUID}"})
 	}
 
 	if versionFlag {
