@@ -389,15 +389,17 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 				continue
 			}
 
+			// TODO: this special treatment of numeric values should be extended to all variables.
+			// For example something like this could work: {PixelSpacing[0]%.3f}
 			if t == tag.SeriesNumber {
 				sn, err := strconv.Atoi(dicomVals[tag.SeriesNumber][0])
 				if err == nil {
-					pps = strings.Replace(pps, "{SeriesNumber}", fmt.Sprintf("%03d", sn), -1)
+					pps = strings.ReplaceAll(pps, "{SeriesNumber}", fmt.Sprintf("%03d", sn))
 				} else {
-					pps = strings.Replace(pps, "{SeriesNumber}", dicomVals[tag.SeriesNumber][0], -1)
+					pps = strings.ReplaceAll(pps, "{SeriesNumber}", dicomVals[tag.SeriesNumber][0])
 				}
 			} else {
-				pps = strings.Replace(pps, stringToReplace, strings.Join(dicomVals[t], "_"), -1)
+				pps = strings.ReplaceAll(pps, stringToReplace, strings.Join(dicomVals[t], "_"))
 			}
 		}
 	}
@@ -880,7 +882,7 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\n\tTo filter for specific DICOM files add a regular expression to the DICOM tag after '=='.\n")
 		fmt.Fprintf(os.Stderr, "\n\tExample:\n")
 		fmt.Fprintf(os.Stderr, "\t\t{Modality==(MR|CT)}\n")
-		fmt.Fprintf(os.Stderr, "\n\tIf a tag value consists of a list of values all elements are concatenated with an underscore.")
+		fmt.Fprintf(os.Stderr, "\n\tIf a tag value consists of a list all list elements are concatenated with underscores.")
 		fmt.Fprintf(os.Stderr, "\n\tAddress individual fields with a bracket notation (<tag>[<index>]).\n")
 		fmt.Fprintf(os.Stderr, "\n\tExample:\n")
 		fmt.Fprintf(os.Stderr, "\t\t{PixelSpacing[0]}_{PixelSpacing[1]}\n")
