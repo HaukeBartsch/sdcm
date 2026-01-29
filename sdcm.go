@@ -880,6 +880,10 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\n\tTo filter for specific DICOM files add a regular expression to the DICOM tag after '=='.\n")
 		fmt.Fprintf(os.Stderr, "\n\tExample:\n")
 		fmt.Fprintf(os.Stderr, "\t\t{Modality==(MR|CT)}\n")
+		fmt.Fprintf(os.Stderr, "\n\tIf a tag value consists of a list of values all elements are concatenated with an underscore.")
+		fmt.Fprintf(os.Stderr, "\n\tAddress individual fields with a bracket notation (<tag>[<index>]).\n")
+		fmt.Fprintf(os.Stderr, "\n\tExample:\n")
+		fmt.Fprintf(os.Stderr, "\t\t{PixelSpacing[0]}_{PixelSpacing[1]}\n")
 
 		fmt.Fprintf(os.Stderr, "\n\033[1mOPTIONS\033[0m\n")
 		// The defaults should not contain the type of a flag to work with 'compdef _gnu_generic sdcm'.
@@ -892,7 +896,7 @@ func main() {
 	log.SetOutput(io.Discard /*ioutil.Discard*/)
 
 	flag.IntVar(&num_workers, "cpus", int(runtime.GOMAXPROCS(0)), "number of worker threads used for processing")
-	flag.StringVar(&methodFlag, "method", "copy", "create either symbolic links (faster) or copy files. If dirs_only is used no files are created [copy|link|dirs_only]. Warning: You need to specify a dummy filename like {counter}.dcm with dirs_only. The last entry in your path will not be created with dirs_only")
+	flag.StringVar(&methodFlag, "method", "copy", "create either symbolic links (faster) or copy files. If dirs_only is used no files are created [copy|link|dirs_only]. Warning: You need to specify a dummy filename like {counter}.dcm with dirs_only")
 	defaultFolderFormat := "{PatientID}_{PatientName}/{StudyDate}_{StudyTime}/{SeriesNumber}_{SeriesDescription}/{Modality}_{SOPInstanceUID}.dcm"
 	flag.StringVar(&outputFolderFlag, "folder", defaultFolderFormat, "specify the requested output folder path\n")
 	flag.StringVar(&outputFormatFlag, "format", defaultFolderFormat, "same as -folder\n")
