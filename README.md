@@ -211,6 +211,12 @@ DESCRIPTION
         Example:
                 {Modality==(MR|CT)}
 
+        If a tag value consists of a list of values all elements are concatenated with an underscore.
+        Address individual fields with a bracket notation (<tag>[<index>]).
+
+        Example:
+                {PixelSpacing[0]}_{PixelSpacing[1]}
+
 OPTIONS
   -brave
         write files even if the output folder already exists and it is not empty
@@ -225,7 +231,7 @@ OPTIONS
         same as -folder
          (default {PatientID}_{PatientName}/{StudyDate}_{StudyTime}/{SeriesNumber}_{SeriesDescription}/{Modality}_{SOPInstanceUID}.dcm)
   -method
-        create either symbolic links (faster) or copy files. If dirs_only is used no files are created [copy|link|dirs_only] (default copy)
+        create either symbolic links (faster) or copy files. If dirs_only is used no files are created [copy|link|dirs_only]. Warning: You need to specify a dummy filename like {counter}.dcm with dirs_only (default copy)
   -preserve
         preserves the timestamp if called with '-preserve timestamp'. This option only works together with '-method copy'
   -quiet
@@ -242,7 +248,6 @@ ENVIRONMENT
 
         SDCM_FOLDER_PATH
                 The default value for option -folder.
-
 ```
 
 ### Notes
