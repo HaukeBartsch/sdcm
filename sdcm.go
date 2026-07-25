@@ -1024,12 +1024,26 @@ func main() {
 		}
 		input = append(input, in)
 	}
+	var output string
+	output, _ = filepath.Abs(pos_args[len(pos_args)-1])
+
 	// we will error out of the output path already exists and is not empty
-	if _, err := os.Stat(pos_args[len(pos_args)-1]); err == nil {
-		isEmpty, _ := IsEmpty(pos_args[len(pos_args)-1])
+	if _, err := os.Stat(output); err == nil {
+		isEmpty, _ := IsEmpty(output)
 		if !isEmpty && !braveFlag {
 			exitGracefully(fmt.Errorf("output path %s already exists, cowardly refusing to continue. Clear its content, specify a new directory or be -brave", pos_args[len(pos_args)-1]))
 		}
+	}
+
+	// The hierarchical folder structure can contain paths that reach outside
+	// of the output folder (using ../).
+	// TODO: there are placeholders in the output folder path that will be replaced by DICOM tag values.
+	// Make sure that such a replacement cannot leave the output folder. For example, if the user
+	// specifies {PatientName} and the patient name is ../../../../tmp, then the output folder will be outside of the output folder.
+	clean_folder_path := filepath.Clean(output + "/" + outputFolderFlag)
+	// is clean_folder_path a subfolder of output?
+	if !strings.HasPrefix(clean_folder_path, output) {
+		exitGracefully(fmt.Errorf("the output folder path \"%s\" (generated using the option -folder/-format) is not a subfolder of the output folder \"%s\", please check your -folder/-format setting", clean_folder_path, output))
 	}
 
 	// check num_workers
