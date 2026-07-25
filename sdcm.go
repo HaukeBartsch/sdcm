@@ -622,6 +622,7 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 	if !thoroughFlag && filepath.Ext(path) != "" {
 		if strings.ToLower(filepath.Ext(path)) != ".dcm" && !isNum(filepath.Ext(path)[1:]) && len(filepath.Ext(path)) < 5 {
 			atomic.AddInt32(&counterError, 1)
+			log.Printf("[%d] ignore file due to file extension: \"%s\"\n", counterError, path)
 			if debugFlag {
 				fmt.Fprintf(os.Stderr, "[%d] ignore file due to file extension: \"%s\"\n", counterError, path)
 			}
@@ -649,6 +650,8 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 	in_file := filepath.Join(InputDataPath, path)
 	in_file = filepath.Clean(in_file)
 	// check if in_file is still part of the input folder (in resolved path), this is a security check to prevent reading files outside of the input folder
+	// TODO: Now all files need to be located inside the input folder. If a file is a symlink to a file
+	// outside the input folder, we will not be able to read it.
 	inputPrefix := InputDataPath
 	if !strings.HasSuffix(inputPrefix, string(filepath.Separator)) {
 		inputPrefix += string(filepath.Separator)
@@ -691,6 +694,7 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 		}
 	} else {
 		atomic.AddInt32(&counterError, 1)
+		log.Printf("[%d] ignore file, cannot read as DICOM: \"%s\"\n\n", counterError, path)
 		if debugFlag {
 			fmt.Fprintf(os.Stderr, "[%d] ignore file, cannot read as DICOM: \"%s\"\n\n", counterError, path)
 		}
@@ -723,6 +727,7 @@ func sort_dicoms(source_paths []string, dest_path string) int32 {
 	if _, err := os.Stat(destination_path); os.IsNotExist(err) {
 		err := os.Mkdir(destination_path, 0755)
 		if err != nil {
+			log.Fatal(err)
 			exitGracefully(fmt.Errorf("could not create output directory \"%s\", %s", destination_path, err.Error()))
 		}
 	}
@@ -951,10 +956,19 @@ func main() {
 		MyPrintDefaults(flag.CommandLine)
 		fmt.Fprintf(os.Stderr, "\n\033[1mENVIRONMENT\033[0m\n\tThe following environment variables affect the execution of sdcm:\n\n")
 		fmt.Fprintf(os.Stderr, "\tSDCM_FOLDER_PATH\n\t\tThe default value for option -folder.\n\n")
+		fmt.Fprintf(os.Stderr, "\tLOGFILE\n\t\tIf defined limited logs will be written to this file.\n\n")
 	}
 
-	log.SetFlags(0)
+	log.SetFlags(log.LstdFlags | log.Lshortfile | log.Lmicroseconds)
 	log.SetOutput(io.Discard /*ioutil.Discard*/)
+	if os.Getenv("LOGFILE") != "" {
+		logFile, err := os.OpenFile(os.Getenv("LOGFILE"), os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0666)
+		if err != nil {
+			log.Println("Unable to create Logger file:", err.Error())
+			return
+		}
+		log.SetOutput(logFile)
+	}
 
 	flag.IntVar(&num_workers, "cpus", int(runtime.GOMAXPROCS(0)), "number of worker threads used for processing")
 	flag.StringVar(&methodFlag, "method", "copy", "create either symbolic links (faster) or copy files. If dirs_only is used no files are created [copy|link|dirs_only]. Warning: You need to specify a dummy filename like {counter}.dcm with dirs_only")
@@ -1013,6 +1027,7 @@ func main() {
 			// could use slices.ContainsFunc here
 			dicomTags = append(dicomTags, tu)
 		} else {
+			log.Printf("Warning, unknown DICOM tag with name \"%s\", cannot be used as a path variable, (%s)\n", matches[a], err)
 			fmt.Fprintf(os.Stderr, "Warning, unknown DICOM tag with name \"%s\", cannot be used as a path variable, (%s)\n", matches[a], err)
 		}
 	}
