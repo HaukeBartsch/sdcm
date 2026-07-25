@@ -63,6 +63,7 @@ var listSeries sync.Map
 var listStructure = make(map[string][]string, 0) // map of SeriesInstanceUIDs of [PatientID, StudyDate, StudyInstanceUID, Modality]
 var modalities = make(map[string]int, 0)
 var listStructureMutex sync.Mutex // mutex to protect listStructure and modalities
+var output string = ""            // the output folder, variable is global so we can check if we are still inside
 
 // TagReplacementTupel is a struct to hold a tag and its replacement string
 type TagReplacementTupel struct {
@@ -484,6 +485,12 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 	if debugFlag && c != 0 {
 		fmt.Fprintf(os.Stderr, "[%d] make file name unique: \"%s\"\n\n", counterError, outputPathFileName)
 	}
+	// Check if outputPathFileName is still part of the output folder.
+	// This is a security check to prevent writing files outside of the output folder.
+	outputPathFileName = filepath.Clean(outputPathFileName)
+	if !strings.HasPrefix(outputPathFileName, output) {
+		exitGracefully(fmt.Errorf("output file path \"%s\" is outside the output folder \"%s\"", outputPathFileName, outputPath))
+	}
 
 	var bw int64 = 0
 	err = nil
@@ -731,6 +738,11 @@ func translateStringOrFile(outputFolderFlag string) string {
 	outputFolderFlag = strings.Trim(outputFolderFlag, " ") // remove any leading or trailing spaces
 	if outputFolderFlag[0] == '@' {                        // should we read this as a filename?
 		outputFolderFlag = outputFolderFlag[1:]
+		// only allow to read files with extension of .txt or .fmt
+		if !strings.HasSuffix(outputFolderFlag, ".txt") && !strings.HasSuffix(outputFolderFlag, ".fmt") {
+			exitGracefully(fmt.Errorf("the path to folder file \"%s\" must have an extension of .txt or .fmt", outputFolderFlag))
+		}
+
 		if _, err := os.Stat(outputFolderFlag); errors.Is(err, os.ErrNotExist) {
 			exitGracefully(fmt.Errorf("the path to folder file \"%s\" could not be found", outputFolderFlag))
 		}
@@ -1024,7 +1036,7 @@ func main() {
 		}
 		input = append(input, in)
 	}
-	var output string
+	// output is a global variable
 	output, _ = filepath.Abs(pos_args[len(pos_args)-1])
 
 	// we will error out of the output path already exists and is not empty
