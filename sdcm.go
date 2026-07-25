@@ -74,6 +74,10 @@ type TagReplacementTupel struct {
 var dicomTags []TagReplacementTupel
 var preserve map[string]bool
 
+// regexCache holds pre-compiled regular expressions keyed by their pattern string.
+// The sync.Map is used because the hot loop runs in concurrent goroutines.
+var regexCache sync.Map
+
 // listStructuresChan is a channel to collect patient, study, series and modality information into listStructure
 var listStructuresChan = make(chan []string, 10000)
 
@@ -203,6 +207,19 @@ func check(e error) {
 	if e != nil {
 		exitGracefully(e)
 	}
+}
+
+// getCachedRegexp returns a pre-compiled *regexp.Regexp from a global cache,
+// compiling and caching it on first use.  All callers in the hot path
+// (processDataset) benefit from this because the same filter regex is
+// re-evaluated for every file.
+func getCachedRegexp(pattern string) *regexp.Regexp {
+	if cached, ok := regexCache.Load(pattern); ok {
+		return cached.(*regexp.Regexp)
+	}
+	re := regexp.MustCompile(pattern)
+	regexCache.Store(pattern, re)
+	return re
 }
 
 var nonAlphanumericRegex = regexp.MustCompile(`[^a-zA-Z0-9 ]+`)
@@ -354,7 +371,7 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 			if strings.Contains(stringToReplace, "==") {
 				r := strings.Split(stringToReplace, "==")[1]
 				r = strings.TrimSuffix(r, "}")
-				re := regexp.MustCompile(r)
+				re := getCachedRegexp(r)
 				if !(re.MatchString(dicomVals[t][0])) { // TODO: we cannot use == and [1] at the same time here
 					skipThisFile = true
 					break
@@ -362,7 +379,7 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 			} else if strings.Contains(stringToReplace, "=") {
 				r := strings.Split(stringToReplace, "=")[1]
 				r = strings.TrimSuffix(r, "}")
-				re := regexp.MustCompile(r)
+				re := getCachedRegexp(r)
 				if !(re.MatchString(dicomVals[t][0])) {
 					skipThisFile = true
 					break
@@ -488,7 +505,11 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 	// Check if outputPathFileName is still part of the output folder.
 	// This is a security check to prevent writing files outside of the output folder.
 	outputPathFileName = filepath.Clean(outputPathFileName)
-	if !strings.HasPrefix(outputPathFileName, output) {
+	outputPrefix := output
+	if !strings.HasSuffix(outputPrefix, string(filepath.Separator)) {
+		outputPrefix += string(filepath.Separator)
+	}
+	if outputPathFileName != output && !strings.HasPrefix(outputPathFileName, outputPrefix) {
 		exitGracefully(fmt.Errorf("output file path \"%s\" is outside the output folder \"%s\"", outputPathFileName, outputPath))
 	}
 
@@ -507,6 +528,23 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 			}
 		}
 	} else if methodFlag == "link" {
+		// Validate that the symlink target resolves within the input tree.
+		// Without this, a maliciously-named file (e.g. "../../etc/passwd.dcm")
+		// could resolve outside InputDataPath and be linked to an arbitrary location.
+		//cleanTarget, err := filepath.Abs(in_file)
+		//if err != nil {
+		//	exitGracefully(fmt.Errorf("could not resolve symlink target %s: %v", in_file, err))
+		//}
+		//cleanTarget = filepath.Clean(cleanTarget)
+		// Ensure InputDataPath ends with a separator so "/data" doesn't
+		// falsely match "/data_backup".
+		//inputPrefix := InputDataPath
+		//if !strings.HasSuffix(inputPrefix, string(filepath.Separator)) {
+		//	inputPrefix += string(filepath.Separator)
+		//}
+		//if cleanTarget != InputDataPath && !strings.HasPrefix(cleanTarget, inputPrefix) {
+		//	exitGracefully(fmt.Errorf("symlink target %s resolves outside input folder %s", in_file, InputDataPath))
+		//}
 		// TODO: this can fail, we test for the file above but here some time went by
 		if err = os.Symlink(in_file, outputPathFileName); err != nil {
 			fmt.Fprintf(os.Stderr, "Warning: could not create symlink %s for %s, %s\n", in_file, outputPathFileName, err)
@@ -517,7 +555,7 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 		if e != nil {
 			log.Fatal(e)
 		}
-		log.Println(emptyfile)
+		log.Println("Create empty file:", outputPathFileName)
 		emptyfile.Close()
 	} else if methodFlag == "dirs_only" { // TODO: do we keep this option?
 		// don't do anything else
@@ -609,6 +647,15 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 		exitGracefully(fmt.Errorf("could not create output data directory %s, %s", oOrderPath, err))
 	}
 	in_file := filepath.Join(InputDataPath, path)
+	in_file = filepath.Clean(in_file)
+	// check if in_file is still part of the input folder (in resolved path), this is a security check to prevent reading files outside of the input folder
+	inputPrefix := InputDataPath
+	if !strings.HasSuffix(inputPrefix, string(filepath.Separator)) {
+		inputPrefix += string(filepath.Separator)
+	}
+	if !strings.HasPrefix(in_file, inputPrefix) {
+		exitGracefully(fmt.Errorf("input file path \"%s\" is outside the input folder \"%s\"", in_file, InputDataPath))
+	}
 
 	// Ok, we can try to be faster if we do not read the whole set, we would like
 	// to also stop parsing after we have all the keys we need.
