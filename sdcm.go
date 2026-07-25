@@ -75,7 +75,7 @@ var dicomTags []TagReplacementTupel
 var preserve map[string]bool
 
 // listStructuresChan is a channel to collect patient, study, series and modality information into listStructure
-var listStructuresChan = make(chan []string, 1000)
+var listStructuresChan = make(chan []string, 10000)
 
 var fmt_local *message.Printer
 
@@ -537,7 +537,7 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 		fmt.Println(err)
 	}
 	atomic.AddInt64(&bytesWritten, bw)
-	return nil
+	return err
 }
 
 // the path we get does not have the input path prefixed
