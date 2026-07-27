@@ -1094,6 +1094,9 @@ func main() {
 	for i := range pos_args[:len(pos_args)-1] {
 		in, err := filepath.Abs(pos_args[i])
 		if err != nil {
+			exitGracefully(fmt.Errorf("input path \"%s\" could not be resolved", pos_args[i]))
+		}
+		if _, err = os.Stat(in); os.IsNotExist(err) {
 			exitGracefully(fmt.Errorf("input path \"%s\" could not be found", pos_args[i]))
 		}
 		input = append(input, in)
