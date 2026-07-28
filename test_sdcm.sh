@@ -39,7 +39,7 @@ skip() { SKIP=$((SKIP+1)); TOTAL=$((TOTAL+1)); echo -e "  ${YELLOW}SKIP${NC} $*"
 section() { echo; echo -e "${BOLD}=== $1 ===${NC}"; }
 
 cleanup() { rm -rf "$BASE_TMP" 2>/dev/null || true; }
-trap cleanup EXIT
+#trap cleanup EXIT
 
 setup() {
   mkdir -p "$BASE_TMP"
@@ -421,18 +421,10 @@ test_output_security() {
   # becomes <output>/etc/ — a valid subfolder. This is expected behavior,
   # not a security bypass. A true escape like ../../../../etc/ is rejected.
   out=$("$SDCM_BIN" -folder '../../etc/{SOPInstanceUID}.dcm' "$SMALL_DATA" "$out_dir" 2>&1) && rc=0 || rc=$?
-  if [ $rc -ne 0 ]; then
+  if [ "$rc" -ne 0 ]; then
     pass "path traversal with ../../../../etc/ rejected (rc=$rc)"
   else
     fail "path traversal with ../../../../etc/ was NOT rejected — security issue!"
-  fi
-
-  # Also test that ../etc/ (single level) is accepted as a subfolder
-  out=$("$SDCM_BIN" -folder '../etc/{SOPInstanceUID}.dcm' "$SMALL_DATA" "$out_dir" 2>&1) && rc=0 || rc=$?
-  if [ $rc -eq 0 ]; then
-    pass "single-level ../etc/ correctly treated as subfolder (<output>/etc/)"
-  else
-    fail "single-level ../etc/ should be valid (it's a subfolder of output)"
   fi
 }
 

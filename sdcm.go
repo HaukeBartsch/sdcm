@@ -510,7 +510,7 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 		outputPrefix += string(filepath.Separator)
 	}
 	if outputPathFileName != output && !strings.HasPrefix(outputPathFileName, outputPrefix) {
-		exitGracefully(fmt.Errorf("output file path \"%s\" is outside the output folder \"%s\"", outputPathFileName, outputPath))
+		exitGracefully(fmt.Errorf("operation not allowed, output file path \"%s\" would be outside the output folder \"%s\"", outputPathFileName, outputPath))
 	}
 
 	var bw int64 = 0
@@ -984,12 +984,12 @@ func main() {
 	flag.StringVar(&preserveFlag, "preserve", "", "preserves the timestamp if called with '-preserve timestamp'. This option only works together with '-method copy'")
 	flag.Parse()
 
-	if outputFormatFlag != "" {
+	if outputFormatFlag != defaultFolderFormat {
 		outputFolderFlag = outputFormatFlag
 	}
 
 	// allow output folder path to be specified by an environment variable
-	if outputFolderFlag == "" {
+	if outputFolderFlag == defaultFolderFormat {
 		env_folder_path := os.Getenv("SDCM_FOLDER_PATH")
 		if len(env_folder_path) > 0 {
 			outputFolderFlag = env_folder_path
@@ -1120,7 +1120,7 @@ func main() {
 	clean_folder_path := filepath.Clean(output + "/" + outputFolderFlag)
 	// is clean_folder_path a subfolder of output?
 	if !strings.HasPrefix(clean_folder_path, output) {
-		exitGracefully(fmt.Errorf("the output folder path \"%s\" (generated using the option -folder/-format) is not a subfolder of the output folder \"%s\", please check your -folder/-format setting", clean_folder_path, output))
+		exitGracefully(fmt.Errorf("operation not allowed, the output folder path \"%s\" (generated using the option -folder/-format) is not a subfolder of the output folder \"%s\", please check your -folder/-format setting", clean_folder_path, output))
 	}
 
 	// check num_workers

@@ -248,6 +248,9 @@ ENVIRONMENT
 
         SDCM_FOLDER_PATH
                 The default value for option -folder.
+
+        LOGFILE
+                If defined limited logs will be written to this file.
 ```
 
 ### Notes
@@ -287,3 +290,9 @@ procedure of your DICOM data. Fix that anonymization process and start again.
 The output folder does not contain DICOM files? Using "-method link" the output folder will contain pointer files (symbolic links) only. Only on the same system you can use these output files directly. If you are planning to send the DICOM files to another system use "-method copy". Or, link and resolves the symbolic links (e.g. 'cp -Lr' above).
 
 Copies of DICOM files can appear in the input directories. For example a file A.dcm might have a A.dcm.bak file next to it with some tags changed. Copies of files can also appear if you use a '-folder' option that generates the same name for different input files. SDCM will try to resolve this by making the output file names unique (adding _001 etc.). You can show a message with -verbose for such copies.
+
+### Basic application testing
+
+```bash
+SDCM_BIN=./sdcm_test_bin bash test_sdcm.sh 2>"test_sdcm_err.log"; echo "EXIT CODE: $?"
+```
