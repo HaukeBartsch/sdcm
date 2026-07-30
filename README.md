@@ -144,15 +144,17 @@ Download the sdcm executable that matches your platform. Copy the file (statical
 Intel-based mac (amd64)
 
 ```bash
-sudo wget -qO- https://github.com/HaukeBartsch/sdcm/raw/main/build/linux-amd64/sdcm > /usr/local/bin/sdcm
-chmod +x /usr/local/bin/sdcm
+wget -qO- https://github.com/HaukeBartsch/sdcm/raw/main/build/linux-amd64/sdcm > /tmp/sdcm
+chmod +x /tmp/sdcm
+sudo cp /tmp/sdcm /usr/local/bin/sdcm
 ```
 
 Silicon-based mac (arm64)
 
 ```bash
-sudo wget -qO- https://github.com/HaukeBartsch/sdcm/raw/main/build/macos-arm64/sdcm > /usr/local/bin/sdcm
-chmod +x /usr/local/bin/sdcm
+wget -qO- https://github.com/HaukeBartsch/sdcm/raw/main/build/macos-arm64/sdcm > /tmp/sdcm
+chmod +x /tmp/sdcm
+sudo cp /tmp/sdcm /usr/local/bin/sdcm
 ```
 
 
