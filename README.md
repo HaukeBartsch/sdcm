@@ -1,5 +1,7 @@
 # SDCM - sort dicom files into folders
 
+DICOM is a medical image data exchange format that uses a hierarchical meta-tag structure (Patient/Study/Series/Image). Use sdcm to create a directory structure that follows the meta-data structure.
+
 ![example run](https://github.com/HaukeBartsch/sdcm/raw/main/images/sdcm.gif)
 
 Usage:
