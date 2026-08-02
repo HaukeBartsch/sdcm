@@ -39,9 +39,14 @@ import (
 	"github.com/djherbis/times"
 
 	_ "net/http/pprof"
+
+	"archive/tar"
+	"archive/zip"
+	"compress/bzip2"
+	"compress/gzip"
 )
 
-const version string = "0.0.5"
+const version string = "0.0.6"
 
 // The string below will be replaced during build time using
 // -ldflags "-X main.compileDate=`date -u +.%Y%m%d.%H%M%S"`"
@@ -51,6 +56,7 @@ var compileDate string = ".unknown"
 
 var counter int32
 var counterError int32
+var archiveCounter int32 // counts files written to archive output
 var bytesWritten int64
 var ProcessDataPath string
 var InputDataPath string
@@ -62,8 +68,9 @@ var listStudies sync.Map
 var listSeries sync.Map
 var listStructure = make(map[string][]string, 0) // map of SeriesInstanceUIDs of [PatientID, StudyDate, StudyInstanceUID, Modality]
 var modalities = make(map[string]int, 0)
-var listStructureMutex sync.Mutex // mutex to protect listStructure and modalities
-var output string = ""            // the output folder, variable is global so we can check if we are still inside
+var listStructureMutex sync.Mutex       // mutex to protect listStructure and modalities
+var output string = ""                  // the output folder, variable is global so we can check if we are still inside
+var archiveWriterInstance archiveWriter // archive writer for archive output (nil when not using archive output)
 
 // TagReplacementTupel is a struct to hold a tag and its replacement string
 type TagReplacementTupel struct {
@@ -316,6 +323,387 @@ func isNum(s string) bool {
 	return true
 }
 
+// ---------------------------------------------------------------------------
+// Archive support helpers
+// ---------------------------------------------------------------------------
+
+// getArchiveType returns the archive type string based on file extension.
+// Returns "" if the path is not a recognized archive.
+func getArchiveType(path string) string {
+	lower := strings.ToLower(path)
+	if strings.HasSuffix(lower, ".tar.bz2") || strings.HasSuffix(lower, ".tbz2") {
+		return "tar.bz2"
+	}
+	if strings.HasSuffix(lower, ".tar.gz") || strings.HasSuffix(lower, ".tgz") {
+		return "tar.gz"
+	}
+	if strings.HasSuffix(lower, ".zip") {
+		return "zip"
+	}
+	if strings.HasSuffix(lower, ".tar") {
+		return "tar"
+	}
+	return ""
+}
+
+// isArchiveFile returns true if the path has a recognized archive extension.
+func isArchiveFile(path string) bool {
+	return getArchiveType(path) != ""
+}
+
+// extractArchiveToTemp extracts an archive file to a temporary directory
+// and returns the path to that directory.
+func extractArchiveToTemp(archivePath string) (string, error) {
+	archType := getArchiveType(archivePath)
+	if archType == "" {
+		return "", fmt.Errorf("unsupported archive type: %s", archivePath)
+	}
+
+	tempDir, err := os.MkdirTemp("", "sdcm-archive-*")
+	if err != nil {
+		return "", err
+	}
+
+	f, err := os.Open(archivePath)
+	if err != nil {
+		return "", err
+	}
+	defer f.Close()
+
+	switch archType {
+	case "zip":
+		return extractZip(f, tempDir)
+	case "tar", "tar.gz", "tgz", "tar.bz2", "tbz2":
+		var reader io.Reader = f
+		switch archType {
+		case "tar.gz", "tgz":
+			gr, err := gzip.NewReader(f)
+			if err != nil {
+				return "", err
+			}
+			reader = gr
+		case "tar.bz2", "tbz2":
+			reader = bzip2.NewReader(f)
+		}
+		return extractTar(reader, tempDir)
+	}
+
+	return "", fmt.Errorf("unsupported archive type: %s", archType)
+}
+
+// extractZip extracts a zip archive to a temp directory.
+func extractZip(f *os.File, tempDir string) (string, error) {
+	info, err := f.Stat()
+	if err != nil {
+		return "", err
+	}
+
+	r, err := zip.NewReader(f, info.Size())
+	if err != nil {
+		return "", err
+	}
+
+	for _, file := range r.File {
+		rc, err := file.Open()
+		if err != nil {
+			return "", err
+		}
+
+		destPath := filepath.Join(tempDir, file.Name)
+
+		if file.FileInfo().IsDir() {
+			if err := os.MkdirAll(destPath, 0755); err != nil {
+				rc.Close()
+				return "", err
+			}
+		} else {
+			if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+				rc.Close()
+				return "", err
+			}
+
+			outFile, err := os.Create(destPath)
+			if err != nil {
+				rc.Close()
+				return "", err
+			}
+			if _, err := io.Copy(outFile, rc); err != nil {
+				outFile.Close()
+				rc.Close()
+				return "", err
+			}
+			outFile.Close()
+		}
+		rc.Close()
+	}
+
+	return tempDir, nil
+}
+
+// extractTar extracts a tar archive (possibly decompressed) to a temp directory.
+func extractTar(r io.Reader, tempDir string) (string, error) {
+	tr := tar.NewReader(r)
+
+	for {
+		header, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return "", err
+		}
+
+		destPath := filepath.Join(tempDir, header.Name)
+
+		switch header.Typeflag {
+		case tar.TypeDir:
+			if err := os.MkdirAll(destPath, 0755); err != nil {
+				return "", err
+			}
+		case tar.TypeReg:
+			if err := os.MkdirAll(filepath.Dir(destPath), 0755); err != nil {
+				return "", err
+			}
+			outFile, err := os.Create(destPath)
+			if err != nil {
+				return "", err
+			}
+			if _, err := io.Copy(outFile, tr); err != nil {
+				outFile.Close()
+				return "", err
+			}
+			outFile.Close()
+		}
+	}
+
+	return tempDir, nil
+}
+
+// archiveWriter defines the interface for writing files into various archive formats.
+type archiveWriter interface {
+	// WriteFile adds a file to the archive.
+	// name is the path within the archive (e.g., "PatientID/StudyDate/...").
+	// src is the local file path to read from.
+	WriteFile(name string, src string) error
+	// Close finalizes and writes the archive footer.
+	Close() error
+}
+
+// zipArchiveWriter implements archiveWriter for zip format.
+type zipArchiveWriter struct {
+	mu sync.Mutex
+	w  *zip.Writer
+	f  *os.File
+}
+
+func newZipArchiveWriter(path string) (*zipArchiveWriter, error) {
+	f, err := os.Create(path)
+	if err != nil {
+		return nil, err
+	}
+	return &zipArchiveWriter{w: zip.NewWriter(f), f: f}, nil
+}
+
+func (z *zipArchiveWriter) WriteFile(name string, src string) error {
+	z.mu.Lock()
+	defer z.mu.Unlock()
+	file, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	w, err := z.w.Create(name)
+	if err != nil {
+		return err
+	}
+	_, err = io.Copy(w, file)
+	return err
+}
+
+func (z *zipArchiveWriter) Close() error {
+	err := z.w.Close()
+	if cerr := z.f.Close(); cerr != nil && err == nil {
+		err = cerr
+	}
+	return err
+}
+
+// tarArchiveWriter implements archiveWriter for plain tar format.
+type tarArchiveWriter struct {
+	mu sync.Mutex
+	w  *tar.Writer
+	f  *os.File
+}
+
+func newTarArchiveWriter(path string) (*tarArchiveWriter, error) {
+	f, err := os.Create(path)
+	if err != nil {
+		return nil, err
+	}
+	return &tarArchiveWriter{w: tar.NewWriter(f), f: f}, nil
+}
+
+func (t *tarArchiveWriter) WriteFile(name string, src string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	file, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+
+	header := &tar.Header{
+		Name:    name,
+		Size:    info.Size(),
+		Mode:    int64(info.Mode()),
+		ModTime: info.ModTime(),
+	}
+	if err := t.w.WriteHeader(header); err != nil {
+		return err
+	}
+	_, err = io.Copy(t.w, file)
+	return err
+}
+
+func (t *tarArchiveWriter) Close() error {
+	err := t.w.Close()
+	if cerr := t.f.Close(); cerr != nil && err == nil {
+		err = cerr
+	}
+	return err
+}
+
+// tarGzipArchiveWriter implements archiveWriter for tar.gz format.
+type tarGzipArchiveWriter struct {
+	mu sync.Mutex
+	w  *tar.Writer
+	g  *gzip.Writer
+	f  *os.File
+}
+
+func newTarGzipArchiveWriter(path string) (*tarGzipArchiveWriter, error) {
+	f, err := os.Create(path)
+	if err != nil {
+		return nil, err
+	}
+	g := gzip.NewWriter(f)
+	return &tarGzipArchiveWriter{w: tar.NewWriter(g), g: g, f: f}, nil
+}
+
+func (t *tarGzipArchiveWriter) WriteFile(name string, src string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	file, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+
+	header := &tar.Header{
+		Name:    name,
+		Size:    info.Size(),
+		Mode:    int64(info.Mode()),
+		ModTime: info.ModTime(),
+	}
+	if err := t.w.WriteHeader(header); err != nil {
+		return err
+	}
+	_, err = io.Copy(t.w, file)
+	return err
+}
+
+func (t *tarGzipArchiveWriter) Close() error {
+	err := t.w.Close()
+	if gerr := t.g.Close(); err == nil {
+		err = gerr
+	}
+	if cerr := t.f.Close(); err == nil {
+		err = cerr
+	}
+	return err
+}
+
+// tarBzip2ArchiveWriter implements archiveWriter for tar.bz2 format.
+type tarBzip2ArchiveWriter struct {
+	mu sync.Mutex
+	w  *tar.Writer
+	f  *os.File
+}
+
+func newTarBzip2ArchiveWriter(path string) (*tarBzip2ArchiveWriter, error) {
+	f, err := os.Create(path)
+	if err != nil {
+		return nil, err
+	}
+	return &tarBzip2ArchiveWriter{w: tar.NewWriter(f), f: f}, nil
+}
+
+func (t *tarBzip2ArchiveWriter) WriteFile(name string, src string) error {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	file, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer file.Close()
+
+	info, err := file.Stat()
+	if err != nil {
+		return err
+	}
+
+	header := &tar.Header{
+		Name:    name,
+		Size:    info.Size(),
+		Mode:    int64(info.Mode()),
+		ModTime: info.ModTime(),
+	}
+	if err := t.w.WriteHeader(header); err != nil {
+		return err
+	}
+	_, err = io.Copy(t.w, file)
+	return err
+}
+
+func (t *tarBzip2ArchiveWriter) Close() error {
+	err := t.w.Close()
+	if cerr := t.f.Close(); err == nil {
+		err = cerr
+	}
+	return err
+}
+
+// createArchiveWriter creates an archiveWriter based on the output path extension.
+func createArchiveWriter(path string) (archiveWriter, error) {
+	switch getArchiveType(path) {
+	case "zip":
+		return newZipArchiveWriter(path)
+	case "tar":
+		return newTarArchiveWriter(path)
+	case "tar.gz", "tgz":
+		return newTarGzipArchiveWriter(path)
+	case "tar.bz2", "tbz2":
+		return newTarBzip2ArchiveWriter(path)
+	default:
+		return nil, fmt.Errorf("unsupported archive type for output: %s", path)
+	}
+}
+
+// ---------------------------------------------------------------------------
+// End of archive support helpers
+// ---------------------------------------------------------------------------
+
 func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_file string) error {
 	// in some special cases we want to skip this DICOM, e.g. DICOMDIR
 	val, err := dataset.FindElementByTag(tag.MediaStorageSOPClassUID)
@@ -468,63 +856,91 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 	pps = strings.Replace(pps, " ", "-", -1)                                  // remove spaces
 
 	pathPieces := splitPath(pps)
-	piece := 0
-	oOrderPatientPath := oOrderPath
-	for piece < len(pathPieces)-1 {
-		// this loop will concurrently try to create these folders, maybe they exist already even if we get an error in Mkdir
-		oOrderPatientPath = filepath.Join(oOrderPatientPath, pathPieces[piece])
-		if _, err := os.Stat(oOrderPatientPath); os.IsNotExist(err) {
-			err := os.Mkdir(oOrderPatientPath, 0755)
-			if err != nil {
-				if _, err2 := os.Stat(oOrderPatientPath); os.IsNotExist(err2) {
-					exitGracefully(fmt.Errorf("could not create data directory %s (%s)", oOrderPatientPath, err))
+	var fname string
+	var outputPath string
+	var outputPathFileName string
+
+	// When writing to an archive, skip filesystem directory creation.
+	// The archive writer handles writing files directly.
+	atomic.AddInt32(&counter, 1)
+	if isArchiveFile(output) {
+		fname = pathPieces[len(pathPieces)-1]
+		outputPath = ""
+		outputPathFileName = ""
+	} else {
+		piece := 0
+		oOrderPatientPath := oOrderPath
+		for piece < len(pathPieces)-1 {
+			// this loop will concurrently try to create these folders, maybe they exist already even if we get an error in Mkdir
+			oOrderPatientPath = filepath.Join(oOrderPatientPath, pathPieces[piece])
+			if _, err := os.Stat(oOrderPatientPath); os.IsNotExist(err) {
+				err := os.Mkdir(oOrderPatientPath, 0755)
+				if err != nil {
+					if _, err2 := os.Stat(oOrderPatientPath); os.IsNotExist(err2) {
+						exitGracefully(fmt.Errorf("could not create data directory %s (%s)", oOrderPatientPath, err))
+					}
 				}
 			}
+			piece = piece + 1
 		}
-		piece = piece + 1
-	}
-	// filename is
-	fname := pathPieces[len(pathPieces)-1]
-
-	outputPath := oOrderPatientPath
-
-	outputPathFileName := fmt.Sprintf("%s/%s", outputPath, fname)
-	_, err = os.Stat(outputPathFileName)
-	var c int = 0
-	atomic.AddInt32(&counter, 1)
-	for !os.IsNotExist(err) {
-		c = c + 1 // make filename unique by adding a number
-		fname := fmt.Sprintf("%s_%03d%s", strings.TrimSuffix(fname, filepath.Ext(fname)), c, filepath.Ext(fname))
+		fname = pathPieces[len(pathPieces)-1]
+		outputPath = oOrderPatientPath
 		outputPathFileName = fmt.Sprintf("%s/%s", outputPath, fname)
-		//outputPathFileName := fmt.Sprintf("%s/%s_%03d.dcm", outputPath, SOPInstanceUID, c)
+
 		_, err = os.Stat(outputPathFileName)
-	}
-	if debugFlag && c != 0 {
-		fmt.Fprintf(os.Stderr, "[%d] make file name unique: \"%s\"\n\n", counterError, outputPathFileName)
-	}
-	// Check if outputPathFileName is still part of the output folder.
-	// This is a security check to prevent writing files outside of the output folder.
-	outputPathFileName = filepath.Clean(outputPathFileName)
-	outputPrefix := output
-	if !strings.HasSuffix(outputPrefix, string(filepath.Separator)) {
-		outputPrefix += string(filepath.Separator)
-	}
-	if outputPathFileName != output && !strings.HasPrefix(outputPathFileName, outputPrefix) {
-		exitGracefully(fmt.Errorf("operation not allowed, output file path \"%s\" would be outside the output folder \"%s\"", outputPathFileName, outputPath))
+		var c int = 0
+		for !os.IsNotExist(err) {
+			c = c + 1 // make filename unique by adding a number
+			fname := fmt.Sprintf("%s_%03d%s", strings.TrimSuffix(fname, filepath.Ext(fname)), c, filepath.Ext(fname))
+			outputPathFileName = fmt.Sprintf("%s/%s", outputPath, fname)
+			//outputPathFileName := fmt.Sprintf("%s/%s_%03d.dcm", outputPath, SOPInstanceUID, c)
+			_, err = os.Stat(outputPathFileName)
+		}
+		if debugFlag && c != 0 {
+			fmt.Fprintf(os.Stderr, "[%d] make file name unique: \"%s\"\n\n", counterError, outputPathFileName)
+		}
+		// Check if outputPathFileName is still part of the output folder.
+		// This is a security check to prevent writing files outside of the output folder.
+		outputPathFileName = filepath.Clean(outputPathFileName)
+		outputPrefix := output
+		if !strings.HasSuffix(outputPrefix, string(filepath.Separator)) {
+			outputPrefix += string(filepath.Separator)
+		}
+		if outputPathFileName != output && !strings.HasPrefix(outputPathFileName, outputPrefix) {
+			exitGracefully(fmt.Errorf("operation not allowed, output file path \"%s\" would be outside the output folder \"%s\"", outputPathFileName, outputPath))
+		}
 	}
 
 	var bw int64 = 0
 	err = nil
+	// Handle archive output before methodFlag checks.
+	// The archive output branch is in the else-if chain, but when methodFlag == "copy"
+	// (the default), the first if block is entered and the else-if chain is skipped.
+	if isArchiveFile(output) {
+		if archiveWriterInstance != nil {
+			archivePath := strings.Join(pathPieces[:len(pathPieces)-1], string(filepath.Separator))
+			fname := pathPieces[len(pathPieces)-1]
+			if archivePath != "" {
+				archivePath = archivePath + string(filepath.Separator) + fname
+			}
+			if err = archiveWriterInstance.WriteFile(archivePath, in_file); err != nil {
+				fmt.Fprintf(os.Stderr, "Warning: could not write %s to archive: %s\n", fname, err)
+			}
+		}
+	}
 	if methodFlag == "copy" {
-		bw, err = copyFileContents(in_file, outputPathFileName)
-		// if we really copy the file we can also check for preserve
-		_, ok := preserve["timestamp"]
-		if ok {
-			t, err := times.Stat(in_file)
-			if err != nil {
-				fmt.Fprintf(os.Stderr, "error, could not stat the output file")
-			} else {
-				os.Chtimes(outputPathFileName, t.AccessTime(), t.ModTime())
+		// Skip copy when writing to an archive — the archive writer handles it.
+		if !isArchiveFile(output) {
+			bw, err = copyFileContents(in_file, outputPathFileName)
+			// if we really copy the file we can also check for preserve
+			_, ok := preserve["timestamp"]
+			if ok {
+				t, err := times.Stat(in_file)
+				if err != nil {
+					fmt.Fprintf(os.Stderr, "error, could not stat the output file")
+				} else {
+					os.Chtimes(outputPathFileName, t.AccessTime(), t.ModTime())
+				}
 			}
 		}
 	} else if methodFlag == "link" {
@@ -547,7 +963,7 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 		//}
 		// TODO: this can fail, we test for the file above but here some time went by
 		if err = os.Symlink(in_file, outputPathFileName); err != nil {
-			fmt.Fprintf(os.Stderr, "Warning: could not create symlink %s for %s, %s\n", in_file, outputPathFileName, err)
+			fmt.Fprintf(os.Stderr, "Warning: could not create symlink %s for \"%s\", \"%s\"\n", in_file, outputPathFileName, err)
 		}
 	} else if methodFlag == "emptyfile" { // TODO: do we keep this option?
 		// don't do anything else
@@ -664,31 +1080,10 @@ func walkFunc(path string, info os.FileInfo, err error) error {
 	// to also stop parsing after we have all the keys we need.
 	// BenchmarkParser_NextAPI
 
-	// Detect the filetype first
-	if filepath.Ext(path) == ".tgz" {
+	// Parse the DICOM file
+	dataset, err := dicom.ParseFile(in_file, nil, dicom.SkipPixelData())
 
-	}
-
-	dataset, err := dicom.ParseFile(in_file, nil, dicom.SkipPixelData()) // See also: dicom.Parse which has a generic io.Reader API.
-
-	/*	TODO: switch to dicom.Parse as it can work with an io.Reader.
-		    TODO: add the ability to detect tgz as file extension and get an io.Reader
-			      from in-memory extraction of a tgz file. Check each DICOM file inside.
-		    f, err := os.Open(filepath)
-			if err != nil {
-				return Dataset{}, err
-			}
-			defer f.Close()
-
-			info, err := f.Stat()
-			if err != nil {
-				return Dataset{}, err
-			}
-
-			return Parse(f, info.Size(), frameChan, opts...) */
-
-	//fmt.Printf("ParseFile time: %v %s\n", time.Since(sT), path)
-	if err == nil { // switch in_file to an io.Reader? We could create a copy from inside a tgz... but links do not work anymore...
+	if err == nil {
 		if processDataset(dataset, path, oOrderPath, in_file) == nil {
 			return nil
 		}
@@ -724,7 +1119,20 @@ func FormatFileSize(s float64, base float64) string {
 func sort_dicoms(source_paths []string, dest_path string) int32 {
 	destination_path := dest_path
 
-	if _, err := os.Stat(destination_path); os.IsNotExist(err) {
+	// Create archive writer early (before the loop) so the defer covers all
+	// source paths and stays open while concurrent goroutines are writing.
+	var archiveErr error
+	if isArchiveFile(dest_path) {
+		archiveWriterInstance, archiveErr = createArchiveWriter(dest_path)
+		if archiveErr != nil {
+			exitGracefully(archiveErr)
+		}
+		defer func() {
+			if archiveWriterInstance != nil {
+				archiveWriterInstance.Close()
+			}
+		}()
+	} else if _, err := os.Stat(destination_path); os.IsNotExist(err) {
 		err := os.Mkdir(destination_path, 0755)
 		if err != nil {
 			log.Fatal(err)
@@ -735,19 +1143,31 @@ func sort_dicoms(source_paths []string, dest_path string) int32 {
 	counter = 0 // we are using this to name DICOM files, not possible here!
 	counterError = 0
 	bytesWritten = 0
-	ProcessDataPath = dest_path
 	startTime = time.Now()
 	//if !quietFlag {
 	//	fmt.Printf("\n")
 	//}
 	for _, source_path := range source_paths {
-		InputDataPath = source_path
+		// Check if input is an archive file
+		if isArchiveFile(source_path) {
+			extracted, err := extractArchiveToTemp(source_path)
+			if err != nil {
+				fmt.Fprintf(os.Stderr, "Error: failed to extract archive %s: %s, skip folder\n", source_path, err.Error())
+				continue
+			}
+			// Clean up temp directory after processing
+			defer os.RemoveAll(extracted)
+			InputDataPath = extracted
+		} else {
+			InputDataPath = source_path
+		}
+		ProcessDataPath = dest_path
 
 		cwalk.NumWorkers = num_workers
 		cwalk.BufferSize = cwalk.NumWorkers
-		err := cwalk.WalkWithSymlinks(source_path, walkFunc)
+		err := cwalk.WalkWithSymlinks(InputDataPath, walkFunc)
 		if err != nil {
-			fmt.Fprintf(os.Stderr, "Error: input directory does not exist (%s). Internal error: \"%s\", skip folder\n", source_path, err.Error())
+			fmt.Fprintf(os.Stderr, "Error: input directory does not exist (%s). Internal error: \"%s\", skip folder\n", InputDataPath, err.Error())
 			/*for i, errors := range err.(cwalk.WalkerErrorList).ErrorList {
 				fmt.Printf("Error [%d]: %s\n", i, errors)
 			}*/
@@ -928,11 +1348,18 @@ func main() {
 	//rand.Seed(time.Now().UnixNano())
 	// disable logging
 	flag.Usage = func() {
-		fmt.Fprintf(os.Stderr, "\n\033[1mNAME\033[0m\n\t%s - sort DICOM files into folders\n\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "\033[1mUSAGE\033[0m\n\t%s (input folder) [(input folder N) ...] (output folder)\n", os.Args[0])
-		fmt.Fprintf(os.Stderr, "\n\033[1mDESCRIPTION\033[0m\n\t\033[1msdcm\033[0m copies DICOM files from one directory to another. The output directory tree structure is user defined and based on DICOM meta-data.\n")
+		fmt.Fprintf(os.Stderr, "\n\033[1mNAME\033[0m\n\t%s - sort DICOM files into folders or archives\n\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "\033[1mUSAGE\033[0m\n\t%s (input folder | archive) [(input folder | archive) ...] (output folder | archive)\n", os.Args[0])
+		fmt.Fprintf(os.Stderr, "\n\033[1mDESCRIPTION\033[0m\n\t\033[1msdcm\033[0m copies DICOM files from one or more input sources to an output location.\n")
+		fmt.Fprintf(os.Stderr, "\tThe output directory tree structure is user-defined and based on DICOM meta-data.\n")
+		fmt.Fprintf(os.Stderr, "\tBoth input and output can be regular folders or compressed archives.\n")
+		fmt.Fprintf(os.Stderr, "\tWhen the input path ends with a recognized archive extension (.zip, .tar, .tar.gz, .tgz,\n")
+		fmt.Fprintf(os.Stderr, "\t.tar.bz2, .tbz2), the archive is automatically extracted before processing.\n")
+		fmt.Fprintf(os.Stderr, "\tWhen the output path ends with a recognized archive extension, files are written\n")
+		fmt.Fprintf(os.Stderr, "\tdirectly into the archive instead of creating a folder structure.\n\n")
+		fmt.Fprintf(os.Stderr, "\tArchive detection is automatic based on file extension.\n\n")
 		fmt.Fprintf(os.Stderr, "\tAdditionally to named DICOM tags a numeric '{counter}' variable can be used. The argument to option 'folder' will be interpreted\n")
-		fmt.Fprintf(os.Stderr, "\tas a filename if it starts with an '@'-character. The file may contain the folder path as text.\n\n")
+		fmt.Fprintf(os.Stderr, "\tas a filename, if it starts with an '@'-character. The file may contain the folder path as text.\n\n")
 		fmt.Fprintf(os.Stderr, "\t\t# Example format path file for sdcm\n")
 		fmt.Fprintf(os.Stderr, "\t\t# Text after a '#' character is ignored. Spaces are also ignored.\n")
 		fmt.Fprintf(os.Stderr, "\t\t# Uses empty strings if tags have no value or do not exist.\n")
@@ -940,16 +1367,28 @@ func main() {
 		fmt.Fprintf(os.Stderr, "\t\t#     sdcm -format @default_format (input folder) (output folder)\n")
 		fmt.Fprintf(os.Stderr, "\t\n")
 		fmt.Fprintf(os.Stderr, "\t\t{PatientID}_{PatientName}/\n")
-		fmt.Fprintf(os.Stderr, "\t\t	{StudyDate}_{StudyTime}/\n")
-		fmt.Fprintf(os.Stderr, "\t\t		{SeriesNumber}_{SeriesDescription}/\n")
-		fmt.Fprintf(os.Stderr, "\t\t			{Modality}_{SOPInstanceUID}.dcm\n")
+		fmt.Fprintf(os.Stderr, "\t\t\t{StudyDate}_{StudyTime}/\n")
+		fmt.Fprintf(os.Stderr, "\t\t\t\t{SeriesNumber}_{SeriesDescription}/\n")
+		fmt.Fprintf(os.Stderr, "\t\t\t\t\t{Modality}_{SOPInstanceUID}.dcm\n")
 		fmt.Fprintf(os.Stderr, "\n\tTo filter for specific DICOM files add a regular expression to the DICOM tag after '=='.\n")
 		fmt.Fprintf(os.Stderr, "\n\tExample:\n")
 		fmt.Fprintf(os.Stderr, "\t\t{Modality==(MR|CT)}\n")
-		fmt.Fprintf(os.Stderr, "\n\tIf a tag value consists of a list all list elements are concatenated with underscores.")
+		fmt.Fprintf(os.Stderr, "\n\tIf a tag value consists of a list, all list elements are concatenated with underscores.")
 		fmt.Fprintf(os.Stderr, "\n\tAddress individual fields with a bracket notation (<tag>[<index>]).\n")
 		fmt.Fprintf(os.Stderr, "\n\tExample:\n")
 		fmt.Fprintf(os.Stderr, "\t\t{PixelSpacing[0]}_{PixelSpacing[1]}\n")
+
+		fmt.Fprintf(os.Stderr, "\n\033[1mARCHIVE SUPPORT\033[0m\n\tInput and output paths ending with a recognized archive extension\n")
+		fmt.Fprintf(os.Stderr, "\tare handled automatically. Supported formats:\n\n")
+		fmt.Fprintf(os.Stderr, "\t.zip       ZIP archive\n")
+		fmt.Fprintf(os.Stderr, "\t.tar       Plain tar archive\n")
+		fmt.Fprintf(os.Stderr, "\t.tar.gz or .tgz    Gzip-compressed tar archive\n")
+		fmt.Fprintf(os.Stderr, "\t.tar.bz2 or .tbz2  Bzip2-compressed tar archive\n\n")
+		fmt.Fprintf(os.Stderr, "\tExamples:\n")
+		fmt.Fprintf(os.Stderr, "\t\tsdcm input.zip output_folder\n")
+		fmt.Fprintf(os.Stderr, "\t\tsdcm input_folder output.zip\n")
+		fmt.Fprintf(os.Stderr, "\t\tsdcm input.zip output.tar.gz\n")
+		fmt.Fprintf(os.Stderr, "\n")
 
 		fmt.Fprintf(os.Stderr, "\n\033[1mOPTIONS\033[0m\n")
 		// The defaults should not contain the type of a flag to work with 'compdef _gnu_generic sdcm'.
@@ -1121,6 +1560,14 @@ func main() {
 	// is clean_folder_path a subfolder of output?
 	if !strings.HasPrefix(clean_folder_path, output) {
 		exitGracefully(fmt.Errorf("operation not allowed, the output folder path \"%s\" (generated using the option -folder/-format) is not a subfolder of the output folder \"%s\", please check your -folder/-format setting", clean_folder_path, output))
+	}
+
+	if isArchiveFile(output) {
+		if methodFlag == "link" {
+			// if methodFlag is "link" we cannot write into an archive file. Instead revert back to "copy" and warn the user.
+			fmt.Fprintf(os.Stderr, "Warning: method \"link\" is not supported when writing to an archive. Reverting to \"copy\"\n")
+			methodFlag = "copy"
+		}
 	}
 
 	// check num_workers

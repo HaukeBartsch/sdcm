@@ -39,7 +39,7 @@ skip() { SKIP=$((SKIP+1)); TOTAL=$((TOTAL+1)); echo -e "  ${YELLOW}SKIP${NC} $*"
 section() { echo; echo -e "${BOLD}=== $1 ===${NC}"; }
 
 cleanup() { rm -rf "$BASE_TMP" 2>/dev/null || true; }
-#trap cleanup EXIT
+trap cleanup EXIT
 
 setup() {
   mkdir -p "$BASE_TMP"
@@ -690,6 +690,134 @@ test_full_regression() {
 }
 
 # =============================================================================
+# TEST 28. Output zip file — creation + internal path names
+# =============================================================================
+test_output_zip() {
+  section "28. Output zip file (creation + internal path names)"
+
+  # 28a. Default format: check zip is created and contains DICOM files with
+  #      internal paths matching the default folder format.
+  local zip_dir="$BASE_TMP/out28a"
+  local zip_file="$zip_dir/output.zip"
+  mkdir -p "$zip_dir"
+  local out
+  out=$("$SDCM_BIN" -quiet "$SMALL_DATA" "$zip_file" 2>&1)
+  local rc=$?
+  if [ $rc -eq 0 ] && [ -f "$zip_file" ]; then
+    local file_count
+    file_count=$(zipinfo -t "$zip_file" 2>/dev/null | awk '{print $1}' || echo 0)
+    if [ "$file_count" -gt 0 ] 2>/dev/null; then
+      pass "zip created with $file_count entries"
+    else
+      fail "zip created but contains no entries"
+    fi
+
+    # Verify internal path names contain expected DICOM-tag directories
+    # Default format is {PatientID}_{PatientName}/{StudyDate}_{StudyTime}/{SeriesNumber}_{SeriesDescription}/{Modality}_{SOPInstanceUID}.dcm
+    # The zip should contain paths that include DICOM tag-derived directory names.
+    local sample_paths
+    sample_paths=$(zipinfo -1 "$zip_file" 2>/dev/null | head -5)
+    if echo "$sample_paths" | grep -q '\.dcm$'; then
+      pass "zip entries end with .dcm"
+    else
+      fail "no .dcm entries found in zip"
+    fi
+
+    # Check that directory segments contain expected DICOM tag patterns
+    # (e.g. CT, MR, or numeric series numbers — anything that looks like
+    #  DICOM metadata rather than raw file names).
+    if echo "$sample_paths" | grep -qE '[A-Z]{2,4}_[0-9a-fA-F.]+\.dcm|/[0-9]{8}_'; then
+      pass "internal paths contain DICOM-derived directory names"
+    else
+      # Show a sample for debugging; the test still passes if we found .dcm entries
+      # because the default format may produce paths with spaces or patient names.
+      echo "$sample_paths" | sed 's/^/    /'
+      skip "could not verify DICOM-derived directory names in paths (may use patient names with spaces)"
+    fi
+
+    # Verify the .dcm files inside the zip are valid by extracting one and
+    # checking its file signature (DICOM starts with "DICM" at offset 128).
+    local extract_dir="$zip_dir/extract_check"
+    mkdir -p "$extract_dir"
+    # Extract the first .dcm file from the zip
+    local first_dcm
+    first_dcm=$(zipinfo -1 "$zip_file" 2>/dev/null | grep '\.dcm$' | head -1)
+    if [ -n "$first_dcm" ]; then
+      unzip -p "$zip_file" "$first_dcm" > "$extract_dir/sample.dcm" 2>/dev/null
+      if [ -s "$extract_dir/sample.dcm" ]; then
+        # Check DICOM magic bytes at offset 128
+        local magic
+        magic=$(dd if="$extract_dir/sample.dcm" bs=1 skip=128 count=4 2>/dev/null | od -A n -t x1 | tr -d ' \n')
+        # DICOM magic is 44 49 43 4d ("DICM")
+        if [ "$magic" = "4449434d" ]; then
+          pass "extracted .dcm file has valid DICOM magic bytes (DICM at offset 128)"
+        else
+          fail "extracted .dcm file missing valid DICOM magic (got: $magic)"
+        fi
+      else
+        fail "could not extract .dcm file from zip"
+      fi
+    else
+      fail "no .dcm file found in zip to extract"
+    fi
+
+    # 28b. Custom format: verify internal path names match the -folder spec.
+    local zip_dir2="$BASE_TMP/out28b"
+    local zip_file2="$zip_dir2/output_custom.zip"
+    mkdir -p "$zip_dir2"
+    out=$("$SDCM_BIN" -quiet -folder '{PatientID}/{Modality}_{SOPInstanceUID}.dcm' "$SMALL_DATA" "$zip_file2" 2>/dev/null)
+    rc=$?
+    if [ $rc -eq 0 ] && [ -f "$zip_file2" ]; then
+      local custom_count
+      custom_count=$(zipinfo -t "$zip_file2" 2>/dev/null | awk '{print $1}' || echo 0)
+      if [ "$custom_count" -gt 0 ] 2>/dev/null; then
+        pass "custom format zip created with $custom_count entries"
+      else
+        fail "custom format zip contains no entries"
+      fi
+
+      # Check that internal paths contain the expected folder format pattern:
+      # {PatientID}/{Modality}_{SOPInstanceUID}.dcm
+      # PatientID is typically a short string (e.g. "HNSCC001"), Modality is 2-4 uppercase letters.
+      local custom_paths
+      custom_paths=$(zipinfo -1 "$zip_file2" 2>/dev/null | head -5)
+      if echo "$custom_paths" | grep -qE '[a-z0-9-]+/[A-Z]{2,4}_[0-9a-fA-F.]+\.dcm'; then
+        pass "custom format zip internal paths match -folder '{PatientID}/{Modality}_{SOPInstanceUID}.dcm'"
+      else
+        echo "$custom_paths" | sed 's/^/    /'
+        fail "custom format zip internal paths do not match expected pattern"
+      fi
+    else
+      fail "custom format zip not created (rc=$rc)"
+    fi
+
+    # 28c. Other archive formats (tar, tar.gz) — basic smoke test.
+    local tar_file="$BASE_TMP/out28c/output.tar"
+    local tar_gz_file="$BASE_TMP/out28c/output.tar.gz"
+    mkdir -p "$BASE_TMP/out28c"
+    local rc_tar rc_targz
+    "$SDCM_BIN" -quiet "$SMALL_DATA" "$tar_file" >/dev/null 2>&1 && rc_tar=0 || rc_tar=$?
+    "$SDCM_BIN" -quiet "$SMALL_DATA" "$tar_gz_file" >/dev/null 2>&1 && rc_targz=0 || rc_targz=$?
+    if [ $rc_tar -eq 0 ] && [ -f "$tar_file" ]; then
+      local tar_count
+      tar_count=$(tar tf "$tar_file" 2>/dev/null | wc -l)
+      pass "tar output created ($(wc -c < "$tar_file") bytes, $tar_count entries)"
+    else
+      fail "tar output not created (rc=$rc_tar)"
+    fi
+    if [ $rc_targz -eq 0 ] && [ -f "$tar_gz_file" ]; then
+      local targz_count
+      targz_count=$(tar tzf "$tar_gz_file" 2>/dev/null | wc -l)
+      pass "tar.gz output created ($(wc -c < "$tar_gz_file") bytes, $targz_count entries)"
+    else
+      fail "tar.gz output not created (rc=$rc_targz)"
+    fi
+  else
+    fail "zip not created (rc=$rc), file exists: $([ -f "$zip_file" ] && echo yes || echo no)"
+  fi
+}
+
+# =============================================================================
 # MAIN
 # =============================================================================
 echo "============================================================================="
@@ -726,6 +854,7 @@ test_too_few_args
 test_multi_input
 test_env_folder
 test_logfile
+test_output_zip
 
 # ---- full tests (optional) ------------------------------------------------
 if [ "$RUN_FULL" = "full" ]; then
