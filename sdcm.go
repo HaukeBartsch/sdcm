@@ -484,7 +484,7 @@ type archiveWriter interface {
 	// WriteFile adds a file to the archive.
 	// name is the path within the archive (e.g., "PatientID/StudyDate/...").
 	// src is the local file path to read from.
-	WriteFile(name string, src string) error
+	WriteFile(name string, src string) (int64, error)
 	// Close finalizes and writes the archive footer.
 	Close() error
 }
@@ -504,21 +504,21 @@ func newZipArchiveWriter(path string) (*zipArchiveWriter, error) {
 	return &zipArchiveWriter{w: zip.NewWriter(f), f: f}, nil
 }
 
-func (z *zipArchiveWriter) WriteFile(name string, src string) error {
+func (z *zipArchiveWriter) WriteFile(name string, src string) (int64, error) {
 	z.mu.Lock()
 	defer z.mu.Unlock()
 	file, err := os.Open(src)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer file.Close()
 
 	w, err := z.w.Create(name)
 	if err != nil {
-		return err
+		return 0, err
 	}
-	_, err = io.Copy(w, file)
-	return err
+	bw, err := io.Copy(w, file)
+	return bw, err
 }
 
 func (z *zipArchiveWriter) Close() error {
@@ -544,18 +544,18 @@ func newTarArchiveWriter(path string) (*tarArchiveWriter, error) {
 	return &tarArchiveWriter{w: tar.NewWriter(f), f: f}, nil
 }
 
-func (t *tarArchiveWriter) WriteFile(name string, src string) error {
+func (t *tarArchiveWriter) WriteFile(name string, src string) (int64, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	file, err := os.Open(src)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer file.Close()
 
 	info, err := file.Stat()
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	header := &tar.Header{
@@ -565,10 +565,10 @@ func (t *tarArchiveWriter) WriteFile(name string, src string) error {
 		ModTime: info.ModTime(),
 	}
 	if err := t.w.WriteHeader(header); err != nil {
-		return err
+		return 0, err
 	}
-	_, err = io.Copy(t.w, file)
-	return err
+	bw, err := io.Copy(t.w, file)
+	return bw, err
 }
 
 func (t *tarArchiveWriter) Close() error {
@@ -596,18 +596,18 @@ func newTarGzipArchiveWriter(path string) (*tarGzipArchiveWriter, error) {
 	return &tarGzipArchiveWriter{w: tar.NewWriter(g), g: g, f: f}, nil
 }
 
-func (t *tarGzipArchiveWriter) WriteFile(name string, src string) error {
+func (t *tarGzipArchiveWriter) WriteFile(name string, src string) (int64, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	file, err := os.Open(src)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer file.Close()
 
 	info, err := file.Stat()
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	header := &tar.Header{
@@ -617,10 +617,10 @@ func (t *tarGzipArchiveWriter) WriteFile(name string, src string) error {
 		ModTime: info.ModTime(),
 	}
 	if err := t.w.WriteHeader(header); err != nil {
-		return err
+		return 0, err
 	}
-	_, err = io.Copy(t.w, file)
-	return err
+	bw, err := io.Copy(t.w, file)
+	return bw, err
 }
 
 func (t *tarGzipArchiveWriter) Close() error {
@@ -649,18 +649,18 @@ func newTarBzip2ArchiveWriter(path string) (*tarBzip2ArchiveWriter, error) {
 	return &tarBzip2ArchiveWriter{w: tar.NewWriter(f), f: f}, nil
 }
 
-func (t *tarBzip2ArchiveWriter) WriteFile(name string, src string) error {
+func (t *tarBzip2ArchiveWriter) WriteFile(name string, src string) (int64, error) {
 	t.mu.Lock()
 	defer t.mu.Unlock()
 	file, err := os.Open(src)
 	if err != nil {
-		return err
+		return 0, err
 	}
 	defer file.Close()
 
 	info, err := file.Stat()
 	if err != nil {
-		return err
+		return 0, err
 	}
 
 	header := &tar.Header{
@@ -670,10 +670,10 @@ func (t *tarBzip2ArchiveWriter) WriteFile(name string, src string) error {
 		ModTime: info.ModTime(),
 	}
 	if err := t.w.WriteHeader(header); err != nil {
-		return err
+		return 0, err
 	}
-	_, err = io.Copy(t.w, file)
-	return err
+	bw, err := io.Copy(t.w, file)
+	return bw, err
 }
 
 func (t *tarBzip2ArchiveWriter) Close() error {
@@ -923,9 +923,11 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 			if archivePath != "" {
 				archivePath = archivePath + string(filepath.Separator) + fname
 			}
-			if err = archiveWriterInstance.WriteFile(archivePath, in_file); err != nil {
+			abw, err := archiveWriterInstance.WriteFile(archivePath, in_file)
+			if err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: could not write %s to archive: %s\n", fname, err)
 			}
+			bw += abw
 		}
 	}
 	if methodFlag == "copy" {
