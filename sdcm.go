@@ -926,8 +926,9 @@ func processDataset(dataset dicom.Dataset, path string, oOrderPath string, in_fi
 			abw, err := archiveWriterInstance.WriteFile(archivePath, in_file)
 			if err != nil {
 				fmt.Fprintf(os.Stderr, "Warning: could not write %s to archive: %s\n", fname, err)
+			} else {
+				bw += abw
 			}
-			bw += abw
 		}
 	}
 	if methodFlag == "copy" {
@@ -1338,6 +1339,15 @@ func MyPrintDefaults(f *flag.FlagSet) {
 	}
 }
 
+// Check if stdout is a terminal and not a pipe or redirect.
+func IsTerminal(f *os.File) bool {
+	stat, err := f.Stat()
+	if err != nil {
+		return false
+	}
+	return (stat.Mode() & os.ModeCharDevice) != 0
+}
+
 func main() {
 
 	// Server for pprof
@@ -1477,6 +1487,10 @@ func main() {
 		quietFlag = false
 	}
 
+	if !IsTerminal(os.Stdout) {
+		quietFlag = true
+	}
+
 	if !quietFlag {
 		// add three tags we need for book keeping
 		dicomTags = append(dicomTags, TagReplacementTupel{Key: tag.PatientID, Value: "{PatientID}"})
@@ -1527,7 +1541,7 @@ func main() {
 
 	if len(os.Args) < 3 {
 		//flag.Usage()
-		fmt.Fprintln(os.Stderr, "SDCM - sort DICOM files into folders\nUSAGE: sdcm (input folder) [(input folder N) ...] (output folder)")
+		fmt.Fprintln(os.Stderr, "SDCM - sort DICOM files into folders\nUSAGE: sdcm (input folder | archive) [(input folder | archive) ...] (output folder | archive)")
 		os.Exit(-1)
 	}
 	var input []string
