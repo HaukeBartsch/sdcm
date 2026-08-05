@@ -189,15 +189,24 @@ This should print the help message:
 
 ```
 NAME
-        sdcm - sort DICOM files into folders
+        sdcm - sort DICOM files into folders or archives
 
 USAGE
-        sdcm (input folder) [(input folder N) ...] (output folder)
+        sdcm (input folder | archive) [(input folder | archive) ...] (output folder | archive)
 
 DESCRIPTION
-        sdcm copies DICOM files from one directory to another. The output directory tree structure is user defined and based on DICOM meta-data.
+        sdcm copies DICOM files from one or more input sources to an output location.
+        The output directory tree structure is user-defined and based on DICOM meta-data.
+        Both input and output can be regular folders or compressed archives.
+        When the input path ends with a recognized archive extension (.zip, .tar, .tar.gz, .tgz,
+        .tar.bz2, .tbz2), the archive is automatically extracted before processing.
+        When the output path ends with a recognized archive extension, files are written
+        directly into the archive instead of creating a folder structure.
+
+        Archive detection is automatic based on file extension.
+
         Additionally to named DICOM tags a numeric '{counter}' variable can be used. The argument to option 'folder' will be interpreted
-        as a filename if it starts with an '@'-character. The file may contain the folder path as text.
+        as a filename, if it starts with an '@'-character. The file may contain the folder path as text.
 
                 # Example format path file for sdcm
                 # Text after a '#' character is ignored. Spaces are also ignored.
@@ -215,17 +224,32 @@ DESCRIPTION
         Example:
                 {Modality==(MR|CT)}
 
-        If a tag value consists of a list of values all elements are concatenated with an underscore.
+        If a tag value consists of a list, all list elements are concatenated with underscores.
         Address individual fields with a bracket notation (<tag>[<index>]).
 
         Example:
                 {PixelSpacing[0]}_{PixelSpacing[1]}
 
+ARCHIVE SUPPORT
+        Input and output paths ending with a recognized archive extension
+        are handled automatically. Supported formats:
+
+        .zip       ZIP archive
+        .tar       Plain tar archive
+        .tar.gz or .tgz    Gzip-compressed tar archive
+        .tar.bz2 or .tbz2  Bzip2-compressed tar archive
+
+        Examples:
+                sdcm input.zip output_folder
+                sdcm input_folder output.zip
+                sdcm input.zip output.tar.gz
+
+
 OPTIONS
   -brave
         write files even if the output folder already exists and it is not empty
   -cpus
-        number of worker threads used for processing (default 16)
+        number of worker threads used for processing (default 8)
   -debug
         print verbose and add messages for skipped files
   -folder
@@ -255,6 +279,7 @@ ENVIRONMENT
 
         LOGFILE
                 If defined limited logs will be written to this file.
+                
 ```
 
 ### Notes
